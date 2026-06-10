@@ -112,19 +112,16 @@ io.on("connection", (socket) => {
     // Only process data from non-observer clients
     if (socket.userType === "0") return;
 
-    // OSC: if point then 1
-    const sendValue = Array.isArray(data) && data.length === 0 ? 0 : 1;
-    client.send("/p" + socket.clientId, sendValue);
+    const pAddr = "/p" + socket.clientId; // on/off signal
+    const xyAddr = "/p" + socket.clientId + "xy"; // position + amplitude
 
-    // Broadcast updated data with clientId info for remote display
+    // Broadcast to other clients for visual display (unchanged)
     if (Array.isArray(data) && data.length === 0) {
-      // clear signal for this client
       socket.broadcast.emit("pointSend", {
         clear: true,
         clientId: socket.clientId,
       });
     } else if (data && data.main) {
-      // attach clientId to point data (including optional amp)
       socket.broadcast.emit("pointSend", {
         clientId: socket.clientId,
         main: data.main,
@@ -132,61 +129,72 @@ io.on("connection", (socket) => {
       });
     }
 
-    if (data && data.amp !== undefined) {
-      // Received amp, process normally
-      socket.lastAmpSent = "non-zero"; // record last sent non-zero amp
-      const amps = Array.isArray(data.amp) ? data.amp : [data.amp];
-      amps.forEach((ampVal) => {
-        // OSC: send amplitude data with id
-        client.send(
-          "/p" + socket.clientId + "amp",
-          Math.min(ampVal.length, 1),
-          (err) => {
-            if (err) {
-              console.error(
-                "Error sending OSC amp message for client " +
-                  socket.clientId +
-                  ":",
-                err,
-              );
-            }
-          },
-        );
-      });
-    } else {
-      // No amp provided, send 0 only once until next non-zero amp value received
-      if (socket.lastAmpSent !== 0) {
-        client.send("/p" + socket.clientId + "amp", 0, (err) => {
-          if (err) {
-            console.error(
-              "Error sending OSC amp message for client " +
-                socket.clientId +
-                ":",
-              err,
-            );
-          }
-        });
-        socket.lastAmpSent = 0;
-      }
+    // OSC: /pN — send on/off with 3 repeats for both 0 and 1
+    // Cancel any pending release retries when a new touch arrives
+    if (socket._releaseRetry) {
+      clearTimeout(socket._releaseRetry);
+      socket._releaseRetry = null;
     }
 
-    if (data.relX !== undefined && data.relY !== undefined) {
-      client.send("/p" + socket.clientId + "x", data.relX, (err) => {
-        if (err) {
-          console.error(
-            "Error sending OSC pX message for client " + socket.clientId + ":",
-            err,
-          );
+    const isActive = !(Array.isArray(data) && data.length === 0);
+    const newVal = isActive ? 1 : 0;
+
+    if (isActive) {
+      // Touch active: frame-driven 3-repeat (client keeps sending frames)
+      if (socket.lastPVal === undefined) socket.lastPVal = -1;
+      if (socket.pSendCount === undefined) socket.pSendCount = 0;
+      if (newVal !== socket.lastPVal) {
+        socket.lastPVal = newVal;
+        socket.pSendCount = 0;
+      }
+      if (socket.pSendCount < 3) {
+        client.send(pAddr, 1, (err) => {
+          if (err)
+            console.error("OSC p err for player " + socket.clientId + ":", err);
+        });
+        socket.pSendCount++;
+      }
+    } else {
+      // Release: client sends point,[] only once, so repeat via timer
+      socket.lastPVal = 0;
+      socket.pSendCount = 0;
+      const doSend = () => {
+        client.send(pAddr, 0, (err) => {
+          if (err)
+            console.error("OSC p err for player " + socket.clientId + ":", err);
+        });
+        socket.pSendCount++;
+        if (socket.pSendCount < 3) {
+          socket._releaseRetry = setTimeout(doSend, 50);
         }
-      });
-      client.send("/p" + socket.clientId + "y", data.relY, (err) => {
-        if (err) {
-          console.error(
-            "Error sending OSC pY message for client " + socket.clientId + ":",
-            err,
-          );
-        }
-      });
+      };
+      doSend();
+    }
+
+    // OSC: /pNxy — relX, relY, amp, only when values change
+    if (socket.lastXY === undefined) {
+      socket.lastXY = { relX: null, relY: null, amp: null };
+    }
+
+    if (isActive && data && data.main) {
+      const relX = data.relX !== undefined ? data.relX : 0.5;
+      const relY = data.relY !== undefined ? data.relY : 0.5;
+      const amp = data.amp ? Math.min(data.amp.length, 1) : 0;
+
+      const last = socket.lastXY;
+      if (relX !== last.relX || relY !== last.relY || amp !== last.amp) {
+        socket.lastXY = { relX, relY, amp };
+        client.send(xyAddr, relX, relY, amp, (err) => {
+          if (err)
+            console.error(
+              "OSC xy err for player " + socket.clientId + ":",
+              err,
+            );
+        });
+      }
+    } else if (!isActive) {
+      // Reset so first touch after release always sends
+      socket.lastXY = { relX: null, relY: null, amp: null };
     }
   });
 

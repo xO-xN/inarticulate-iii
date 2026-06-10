@@ -255,12 +255,12 @@ function draw() {
     // Throttle: emit point data every 2 frames (~30fps) to reduce WiFi load
     pointFrameCount++;
     if (pointFrameCount % 2 === 0) {
-      socket.emit("point", data);
+      socket.volatile.emit("point", data);
     }
   } else if (userType !== "0") {
     localPoint = undefined;
     if (!touchReleasedSent) {
-      socket.emit("point", []); // Send 0 only once
+      socket.volatile.emit("point", []); // Send 0 only once
       touchReleasedSent = true; // Set flag to prevent repeated sends
     }
   }
@@ -311,10 +311,10 @@ function draw() {
 
         if (lineId) {
           if (dst < maxLineLength) {
-            socket.emit("lineStroke", { id: lineId, stroke: sw });
+            socket.volatile.emit("lineStroke", { id: lineId, stroke: sw });
             newActiveLines[lineId] = true;
           } else {
-            socket.emit("lineStroke", { id: lineId, stroke: 0 });
+            socket.volatile.emit("lineStroke", { id: lineId, stroke: 0 });
           }
         }
       }
@@ -333,7 +333,7 @@ function draw() {
   if (userType !== "0") {
     for (let id in activeLines) {
       if (!newActiveLines[id]) {
-        socket.emit("lineStroke", { id: id, stroke: 0 });
+        socket.volatile.emit("lineStroke", { id: id, stroke: 0 });
       }
     }
     activeLines = newActiveLines;
