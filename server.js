@@ -20,7 +20,7 @@ app.use(express.static("public"));
 // Print server URLs on startup
 function printServerInfo() {
   console.log("Server started on port 6868");
-  console.log("OSC → " + oscHost + ":" + oscPort);
+  console.log("OSC \u2192 " + oscHost + ":" + oscPort);
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
@@ -47,26 +47,21 @@ app.get("/qr", (req, res) => {
 
 console.log("Server-side code running");
 
-let clientCounter = 1;
-let freedIds = [];
-let assignedIds = new Set(); // Track specifically assigned IDs (1, 2, 3)
+let nextTempId = 1;
+let assignedIds = new Set(); // Player IDs ("1", "2", "3") currently in use
 
-// Function to broadcast the current client count
+// Broadcast active player count (excludes "0" operator, excludes unselected connections)
 function broadcastClientCount() {
-  // Calculate actual connected clients by subtracting freed IDs from the highest assigned ID
-  const actualConnectedClients = clientCounter - 1 - freedIds.length;
-  io.emit("clientCount", actualConnectedClients);
+  let count = 0;
+  for (const sock of io.sockets.sockets.values()) {
+    if (sock.userType && sock.userType !== "0") count++;
+  }
+  io.emit("clientCount", count);
 }
 
 io.on("connection", (socket) => {
-  // Initially assign a temporary ID
-  if (freedIds.length > 0) {
-    socket.clientId = Math.min(...freedIds);
-    freedIds = freedIds.filter((id) => id !== socket.clientId);
-  } else {
-    socket.clientId = clientCounter++;
-  }
-
+  // Assign a unique session-only temp ID (monotonic, never recycled)
+  socket.clientId = nextTempId++;
   socket.emit("clientId", socket.clientId);
   broadcastClientCount();
 
@@ -75,7 +70,7 @@ io.on("connection", (socket) => {
     const userType = data.userType;
 
     // For IDs 1, 2, 3 - check if already taken
-    if (userType !== "OB" && assignedIds.has(userType)) {
+    if (userType !== "0" && assignedIds.has(userType)) {
       socket.emit("idConfirmation", {
         status: "rejected",
         userType: userType,
@@ -84,14 +79,14 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // If user had a previous ID (not OB), free it
-    if (socket.userType && socket.userType !== "OB") {
+    // If user had a previous ID (not the operator), free it
+    if (socket.userType && socket.userType !== "0") {
       assignedIds.delete(socket.userType);
     }
 
     // Assign new ID
     socket.userType = userType;
-    if (userType !== "OB") {
+    if (userType !== "0") {
       assignedIds.add(userType);
       // For numeric IDs, set clientId to match the selected number
       socket.clientId = parseInt(userType);
@@ -102,12 +97,20 @@ io.on("connection", (socket) => {
       userType: userType,
     });
 
+    // After confirmation (so client has set selectionMade=true before receiving this),
+    // tell the client their final clientId so line IDs use player numbers, not temp IDs
+    // and broadcast the updated player count
+    if (userType !== "0") {
+      socket.emit("clientId", socket.clientId);
+      broadcastClientCount();
+    }
+
     //console.log(`Client ${socket.id} selected ID type: ${userType}`);
   });
 
   socket.on("point", (data) => {
     // Only process data from non-observer clients
-    if (socket.userType === "OB") return;
+    if (socket.userType === "0") return;
 
     // OSC: if point then 1
     const sendValue = Array.isArray(data) && data.length === 0 ? 0 : 1;
@@ -189,7 +192,7 @@ io.on("connection", (socket) => {
 
   socket.on("lineStroke", (data) => {
     // Only process line data from non-observer clients
-    if (socket.userType === "OB") return;
+    if (socket.userType === "0") return;
 
     client.send("/" + data.id, data.stroke, (err) => {
       if (err) {
@@ -199,40 +202,44 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected, cleared clientId:", socket.clientId);
+    const isPlayer = socket.userType && socket.userType !== "0";
+    console.log(
+      "Client disconnected" +
+        (isPlayer ? " (player " + socket.userType + ")" : "") +
+        ", id:",
+      socket.clientId,
+    );
 
-    // Send OSC clear signals for points and amplitude
-    client.send("/p" + socket.clientId, 0, (err) => {
-      if (err) {
-        console.error(
-          "Error sending OSC clear message for client " + socket.clientId + ":",
-          err,
-        );
-      }
-    });
-    client.send("/p" + socket.clientId + "amp", 0, (err) => {
-      if (err) {
-        console.error(
-          "Error sending OSC clear amp message for client " +
-            socket.clientId +
-            ":",
-          err,
-        );
-      }
-    });
+    // Only actual players sent data — only they need cleanup
+    if (isPlayer) {
+      const playerId = parseInt(socket.userType); // 1, 2, or 3
 
-    // Tell all other clients to remove this client's point
-    socket.broadcast.emit("pointSend", {
-      clear: true,
-      clientId: socket.clientId,
-    });
+      // OSC: clear this player's point, amp, and position signals
+      client.send("/p" + playerId, 0, (err) => {
+        if (err)
+          console.error(
+            "Error sending OSC clear for player " + playerId + ":",
+            err,
+          );
+      });
+      client.send("/p" + playerId + "amp", 0, (err) => {
+        if (err)
+          console.error(
+            "Error sending OSC amp clear for player " + playerId + ":",
+            err,
+          );
+      });
 
-    // Free the numeric ID if it was assigned
-    if (socket.userType && socket.userType !== "OB") {
+      // Broadcast: remove this player's point from other clients
+      socket.broadcast.emit("pointSend", {
+        clear: true,
+        clientId: playerId,
+      });
+
+      // Free the player ID for reuse
       assignedIds.delete(socket.userType);
     }
 
-    freedIds.push(socket.clientId);
     delete socket.clientId;
     delete socket.userType;
     broadcastClientCount();

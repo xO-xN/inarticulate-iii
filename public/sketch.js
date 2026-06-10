@@ -1,7 +1,7 @@
 let socket;
 let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
-let userType = null; // Can be "1", "2", "3" or "OB"
+let userType = null; // Can be "1", "2", "3" or "0" (0 = OB observer)
 let selectionMade = false; // Flag to track if user has selected ID
 
 let localPoint; // Local touch point
@@ -17,7 +17,7 @@ const { pow } = Math;
 function promptForUserType() {
   // Using setTimeout to ensure this runs after the page has loaded
   setTimeout(() => {
-    const selection = prompt("Select your 🎹:", "1, 2, 3 or OB");
+    const selection = prompt("Select your 🎹:", "1, 2 or 3");
 
     if (selection === null) {
       // User canceled - ask again
@@ -25,14 +25,15 @@ function promptForUserType() {
       return;
     }
 
-    const validSelection = ["1", "2", "3", "OB"].includes(selection);
+    // "0" is a hidden option for the operator (former "OB", not shown in prompt text)
+    const validSelection = ["1", "2", "3", "0"].includes(selection);
 
     if (validSelection) {
       // Send selection to server
       socket.emit("selectId", { userType: selection });
     } else {
       // Invalid selection, prompt again
-      alert("Please enter a valid option: 1, 2, 3 or OB");
+      alert("Please enter a valid option: 1, 2 or 3");
       promptForUserType();
     }
   }, 300);
@@ -99,6 +100,7 @@ function setup() {
   // Add listener for client count updates
   socket.on("clientCount", (count) => {
     clientCount = count;
+    document.getElementById("badge-clients-text").textContent = count;
   });
 
   // Listen for ID selection confirmation
@@ -107,11 +109,18 @@ function setup() {
       userType = data.userType;
       selectionMade = true;
 
-      // Show QR toggle button in OB mode (projected on big screen)
+      // Show badge for players only (operator (0) doesn't need it)
+      if (userType !== "0") {
+        document.getElementById("badge-user-text").textContent = userType;
+        document.getElementById("badge-user").classList.add("visible");
+      }
+      document.getElementById("badge-clients").classList.add("visible");
+
+      // Show QR toggle button in operator mode (projected on big screen)
       const qrToggle = document.getElementById("qr-toggle");
-      if (userType === "OB") {
+      if (userType === "0") {
         qrToggle.classList.add("visible");
-        // Auto-show QR code on the OB screen for players to scan
+        // Auto-show QR code on the operator screen for players to scan
         showQR();
       } else {
         // Players 1/2/3 don't need the QR code or toggle on their devices
@@ -123,6 +132,9 @@ function setup() {
       alert(`ID ${data.userType} is already taken. Please select another.`);
       selectionMade = false;
       userType = null;
+      document.getElementById("badge-user-text").textContent = "—";
+      document.getElementById("badge-user").classList.remove("visible");
+      document.getElementById("badge-clients").classList.remove("visible");
       promptForUserType();
     }
   });
@@ -134,6 +146,11 @@ function setup() {
     } else {
       showQR();
     }
+  });
+
+  // Clicking the QR code itself also hides it
+  document.getElementById("qr-wrapper").addEventListener("click", () => {
+    if (qrVisible) hideQR();
   });
 }
 
@@ -187,14 +204,13 @@ function draw() {
     circle(width / 2, height / 2, size);
   }
 
-  textAlign(LEFT, BOTTOM);
-  textSize(width / 28);
-  fill(colors[4]);
-  text(`🎹 ${userType}`, 40, height - 20); // Display selected ID type
-
-  // Add client count display in bottom-right corner
-  textAlign(RIGHT, BOTTOM);
-  text(`${clientCount} 🛜`, width - 40, height - 20);
+  // Show badges when selection is made
+  if (selectionMade) {
+    if (userType !== "0") {
+      document.getElementById("badge-user").classList.add("visible");
+    }
+    document.getElementById("badge-clients").classList.add("visible");
+  }
 
   drawNotes();
 
@@ -202,7 +218,7 @@ function draw() {
   noStroke();
 
   // Only process touch inputs if not in observer mode
-  if (userType !== "OB" && touches.length) {
+  if (userType !== "0" && touches.length) {
     touchReleasedSent = false; // Reset flag when touch is detected
     const pt = touches[0]; // first touch for main point
     localPoint = createVector(pt.x, pt.y);
@@ -241,7 +257,7 @@ function draw() {
     if (pointFrameCount % 2 === 0) {
       socket.emit("point", data);
     }
-  } else if (userType !== "OB") {
+  } else if (userType !== "0") {
     localPoint = undefined;
     if (!touchReleasedSent) {
       socket.emit("point", []); // Send 0 only once
@@ -250,7 +266,7 @@ function draw() {
   }
 
   fill(colors[2]);
-  // Draw remote points with ID label for OB mode
+  // Draw remote points with ID label for operator mode
   for (let key in remotePoints) {
     const ptData = remotePoints[key];
     let diameter = ptData.amp ? 20 + ptData.amp.length * 60 : 20;
@@ -258,7 +274,7 @@ function draw() {
     if (ptData.amp) {
       circle(ptData.amp.x, ptData.amp.y, 12);
     }
-    if (userType === "OB") {
+    if (userType === "0") {
       textAlign(RIGHT, TOP);
       fill(colors[4]);
       textSize(12);
@@ -272,7 +288,7 @@ function draw() {
 
   // Build array with { id, pt } for local and remote points.
   const points = [];
-  if (localPoint && userType !== "OB") points.push({ id: ID, pt: localPoint });
+  if (localPoint && userType !== "0") points.push({ id: ID, pt: localPoint });
   // Map remotePoints: key is remote client id.
   for (const [key, dp] of Object.entries(remotePoints)) {
     points.push({ id: key, pt: dp.main });
@@ -286,7 +302,7 @@ function draw() {
       let sw = map(dst, 0, maxLineLength, 1, 0);
       let lineId = "";
 
-      if (userType !== "OB") {
+      if (userType !== "0") {
         if (points[i].id == ID && points[j].id != ID) {
           lineId = `p${points[i].id}-p${points[j].id}`;
         } else if (points[j].id == ID && points[i].id != ID) {
@@ -314,7 +330,7 @@ function draw() {
   circle(width / 2, height / 2, 75);
 
   // When a previously active line is no longer present, emit stroke 0.
-  if (userType !== "OB") {
+  if (userType !== "0") {
     for (let id in activeLines) {
       if (!newActiveLines[id]) {
         socket.emit("lineStroke", { id: id, stroke: 0 });
@@ -342,6 +358,6 @@ function drawNotes() {
     image(p2c, width / 2, height / 2, width, (width * 5) / 3);
   } else if (userType === "3") {
     image(p3c, width / 2, height / 2, width, (width * 5) / 3);
-  } else if (userType === "OB") {
+  } else if (userType === "0") {
   }
 }
