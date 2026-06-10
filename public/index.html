@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="user-scalable=no, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+        />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+        <meta name="apple-mobile-web-app-title" content="Sketch" />
+
+        <title>Sketch</title>
+
+        <link rel="stylesheet" type="text/css" href="style.css" />
+
+        <script src="libraries/p5.min.js"></script>
+        <script src="/socket.io/socket.io.js"></script>
+    </head>
+
+    <body>
+        <!-- QR Code overlay (centered on OB screen for players to scan) -->
+        <div id="qr-overlay">
+            <div id="qr-wrapper">
+                <img id="qr-image" src="/qr" alt="Scan to join" />
+            </div>
+            <p id="qr-label">Scan to join</p>
+        </div>
+
+        <!-- Connection status indicator (reconnect UI) -->
+        <div id="connection-status" class="hidden">
+            <span id="status-dot"></span>
+            <span id="status-text">Connected</span>
+        </div>
+
+        <!-- QR toggle button (bottom-left, for OB to hide/show QR) -->
+        <button id="qr-toggle" title="Toggle QR Code">
+            <span id="qr-toggle-icon">&#x2B06;</span>
+        </button>
+
+        <script src="sketch.js"></script>
+    </body>
+</html>

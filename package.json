@@ -1,0 +1,17 @@
+{
+  "name": "codingtrainsocket",
+  "version": "0.0.1",
+  "description": "follow ytb tutorial",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-osc": "^9.1.4",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1"
+  }
+}
