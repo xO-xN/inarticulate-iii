@@ -14,18 +14,20 @@ const oscHost = process.env.OSC_HOST || "127.0.0.1";
 const oscPort = parseInt(process.env.OSC_PORT, 10) || 3333;
 const client = new Client(oscHost, oscPort);
 const QRCode = require("qrcode");
+const qrcode = require("qrcode-terminal");
 
 app.use(express.static("public"));
 
 // Print server URLs on startup
 function printServerInfo() {
-  console.log("Server started on port 6868");
-  console.log("OSC \u2192 " + oscHost + ":" + oscPort);
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
       if (net.family === "IPv4" && !net.internal) {
-        console.log("  http://" + net.address + ":6868");
+        const url = "http://" + net.address + ":6868";
+        console.log("Server Address: " + url);
+        console.log("OSC Send Address: " + oscHost + ":" + oscPort);
+        qrcode.generate(url, { small: true });
       }
     }
   }
@@ -44,8 +46,6 @@ app.get("/qr", (req, res) => {
     res.send(svg);
   });
 });
-
-console.log("Server-side code running");
 
 let nextTempId = 1;
 let assignedIds = new Set(); // Player IDs ("1", "2", "3") currently in use
@@ -211,12 +211,6 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const isPlayer = socket.userType && socket.userType !== "0";
-    console.log(
-      "Client disconnected" +
-        (isPlayer ? " (player " + socket.userType + ")" : "") +
-        ", id:",
-      socket.clientId,
-    );
 
     // Only actual players sent data — only they need cleanup
     if (isPlayer) {
@@ -252,12 +246,4 @@ io.on("connection", (socket) => {
     delete socket.userType;
     broadcastClientCount();
   });
-});
-
-client.send("/server", "osc connected", (err) => {
-  if (err) {
-    console.error("Error sending OSC message:", err);
-  } else {
-    console.log("OSC message sent successfully.");
-  }
 });

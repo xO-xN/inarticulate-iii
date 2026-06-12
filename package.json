@@ -12,6 +12,7 @@
     "express": "^4.21.2",
     "node-osc": "^9.1.4",
     "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.8.1"
   }
 }
