@@ -1,24 +1,29 @@
 const express = require("express");
 const os = require("os");
+const readline = require("readline");
+const { Client } = require("node-osc");
+const QRCode = require("qrcode");
+const qrcode = require("qrcode-terminal");
+
 const app = express();
-const server = app.listen(6868);
+let client = null; // created after user input
+
+const sendOSC = (...args) => client && client.send(...args);
+
+app.use(express.static("public"));
+
+const server = app.listen(6868, () => {
+  printServerInfo();
+  promptOSCTarget();
+});
+
 const io = require("socket.io")(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
   },
 });
-const { Client } = require("node-osc");
-// OSC target configurable via env vars (e.g. OSC_HOST=192.168.1.5 OSC_PORT=3333)
-const oscHost = process.env.OSC_HOST || "127.0.0.1";
-const oscPort = parseInt(process.env.OSC_PORT, 10) || 3333;
-const client = new Client(oscHost, oscPort);
-const QRCode = require("qrcode");
-const qrcode = require("qrcode-terminal");
 
-app.use(express.static("public"));
-
-// Print server URLs on startup
 function printServerInfo() {
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
@@ -26,13 +31,11 @@ function printServerInfo() {
       if (net.family === "IPv4" && !net.internal) {
         const url = "http://" + net.address + ":6868";
         console.log("Server Address: " + url);
-        console.log("OSC Send Address: " + oscHost + ":" + oscPort);
         qrcode.generate(url, { small: true });
       }
     }
   }
 }
-printServerInfo();
 // QR code endpoint - generates SVG for the server URL
 // Players scan this to quickly connect from their phones
 app.get("/qr", (req, res) => {
@@ -148,7 +151,7 @@ io.on("connection", (socket) => {
         socket.pSendCount = 0;
       }
       if (socket.pSendCount < 3) {
-        client.send(pAddr, 1, (err) => {
+        sendOSC(pAddr, 1, (err) => {
           if (err)
             console.error("OSC p err for player " + socket.clientId + ":", err);
         });
@@ -159,7 +162,7 @@ io.on("connection", (socket) => {
       socket.lastPVal = 0;
       socket.pSendCount = 0;
       const doSend = () => {
-        client.send(pAddr, 0, (err) => {
+        sendOSC(pAddr, 0, (err) => {
           if (err)
             console.error("OSC p err for player " + socket.clientId + ":", err);
         });
@@ -184,7 +187,7 @@ io.on("connection", (socket) => {
       const last = socket.lastXY;
       if (relX !== last.relX || relY !== last.relY || amp !== last.amp) {
         socket.lastXY = { relX, relY, amp };
-        client.send(xyAddr, relX, relY, amp, (err) => {
+        sendOSC(xyAddr, relX, relY, amp, (err) => {
           if (err)
             console.error(
               "OSC xy err for player " + socket.clientId + ":",
@@ -202,7 +205,7 @@ io.on("connection", (socket) => {
     // Only process line data from non-observer clients
     if (socket.userType === "0") return;
 
-    client.send("/" + data.id, data.stroke, (err) => {
+    sendOSC("/" + data.id, data.stroke, (err) => {
       if (err) {
         console.error("Error sending OSC line message:", err);
       }
@@ -217,14 +220,14 @@ io.on("connection", (socket) => {
       const playerId = parseInt(socket.userType); // 1, 2, or 3
 
       // OSC: clear this player's point, amp, and position signals
-      client.send("/p" + playerId, 0, (err) => {
+      sendOSC("/p" + playerId, 0, (err) => {
         if (err)
           console.error(
             "Error sending OSC clear for player " + playerId + ":",
             err,
           );
       });
-      client.send("/p" + playerId + "amp", 0, (err) => {
+      sendOSC("/p" + playerId + "amp", 0, (err) => {
         if (err)
           console.error(
             "Error sending OSC amp clear for player " + playerId + ":",
@@ -247,3 +250,36 @@ io.on("connection", (socket) => {
     broadcastClientCount();
   });
 });
+
+// ── Console prompt for OSC target ──────────────────────────────────
+function promptOSCTarget() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  rl.question("  OSC Send Address (IP:Port): ", (input) => {
+    const trimmed = input.trim();
+
+    let cleanIP = "127.0.0.1";
+    let cleanPort = 3333;
+
+    const colonIndex = trimmed.lastIndexOf(":");
+    if (colonIndex > 0) {
+      const possiblePort = parseInt(trimmed.slice(colonIndex + 1), 10);
+      if (!isNaN(possiblePort) && possiblePort > 0 && possiblePort <= 65535) {
+        cleanPort = possiblePort;
+        cleanIP = trimmed.slice(0, colonIndex);
+      } else {
+        cleanIP = trimmed;
+      }
+    } else if (trimmed) {
+      cleanIP = trimmed;
+    }
+
+    client = new Client(cleanIP, cleanPort);
+    console.log("OSC Send Address: " + cleanIP + ":" + cleanPort);
+    console.log("");
+    rl.close();
+  });
+}
