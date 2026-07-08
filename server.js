@@ -24,6 +24,13 @@ const io = require("socket.io")(server, {
   },
 });
 
+// OB operator view on port 6869
+const obApp = express();
+obApp.use(express.static("public"));
+obApp.listen(6869, () => {
+  console.log("Operator view: http://<ip>:6869");
+});
+
 function printServerInfo() {
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
@@ -38,7 +45,7 @@ function printServerInfo() {
 }
 // QR code endpoint - generates SVG for the server URL
 // Players scan this to quickly connect from their phones
-app.get("/qr", (req, res) => {
+const qrHandler = (req, res) => {
   const url = req.protocol + "://" + req.headers.host + "/";
   QRCode.toString(url, { type: "svg", width: 6, margin: 1 }, (err, svg) => {
     if (err) {
@@ -48,7 +55,9 @@ app.get("/qr", (req, res) => {
     res.type("image/svg+xml");
     res.send(svg);
   });
-});
+};
+app.get("/qr", qrHandler);
+obApp.get("/qr", qrHandler);
 
 let nextTempId = 1;
 let assignedIds = new Set(); // Player IDs ("1", "2", "3") currently in use
@@ -251,8 +260,25 @@ io.on("connection", (socket) => {
   });
 });
 
-// ── Console prompt for OSC target ──────────────────────────────────
+// ── Init OSC target: from CLI args or interactive prompt ───────────
 function promptOSCTarget() {
+  const args = process.argv.slice(2);
+
+  let cleanIP = args[0] || null;
+  let cleanPort = args[1] ? parseInt(args[1], 10) : null;
+
+  if (cleanIP) {
+    // From command-line arguments
+    if (!cleanPort || isNaN(cleanPort) || cleanPort < 1 || cleanPort > 65535) {
+      cleanPort = 3333;
+    }
+    client = new Client(cleanIP, cleanPort);
+    console.log("OSC Send Address: " + cleanIP + ":" + cleanPort);
+    console.log("");
+    return;
+  }
+
+  // Interactive prompt
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -261,8 +287,8 @@ function promptOSCTarget() {
   rl.question("  OSC Send Address (IP:Port): ", (input) => {
     const trimmed = input.trim();
 
-    let cleanIP = "127.0.0.1";
-    let cleanPort = 3333;
+    cleanIP = "127.0.0.1";
+    cleanPort = 3333;
 
     const colonIndex = trimmed.lastIndexOf(":");
     if (colonIndex > 0) {

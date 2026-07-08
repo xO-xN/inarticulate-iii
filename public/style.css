@@ -44,11 +44,9 @@ canvas {
     z-index: 10;
     pointer-events: none;
 }
-
 #qr-overlay.visible {
     display: flex;
 }
-
 #qr-wrapper {
     background: white;
     padding: 20px;
@@ -56,14 +54,12 @@ canvas {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
     pointer-events: auto;
 }
-
 #qr-image {
     display: block;
     width: min(50vw, 50vh, 240px);
     height: auto;
     image-rendering: pixelated;
 }
-
 #qr-label {
     color: #e5e5e5;
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -74,8 +70,7 @@ canvas {
     opacity: 0.8;
     pointer-events: none;
 }
-
-/* QR Toggle Button */
+/* QR Toggle */
 #qr-toggle {
     position: fixed;
     bottom: 60px;
@@ -98,19 +93,8 @@ canvas {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
-
-#qr-toggle.visible {
-    display: flex;
-}
-
 #qr-toggle:active {
     transform: scale(0.9);
-    background: rgba(229, 229, 229, 0.2);
-}
-
-#qr-toggle.active {
-    border-color: rgba(229, 229, 229, 0.8);
-    background: rgba(229, 229, 229, 0.15);
 }
 
 /* --- Unified pill/badge styles --- */

@@ -1,13 +1,15 @@
+const IS_OPERATOR = location.port === "6869";
+
 let socket;
 let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
-let userType = null; // Can be "1", "2", "3" or "0" (0 = OB observer)
+let userType = null; // Can be "1", "2", or "3"
 let selectionMade = false; // Flag to track if user has selected ID
 
 let localPoint; // Local touch point
 let remotePoints = {};
+let qrVisible = false;
 let activeLines = {}; // added global variable for tracking active line connections
-let qrVisible = false; // QR code visibility state
 let pointFrameCount = 0; // throttle: emit point every 2 frames
 let maxLineLength = 300;
 const colors = ["#000000", "#14213d", "#515E63", "#e5e5e5", "#ffffff"];
@@ -25,8 +27,7 @@ function promptForUserType() {
       return;
     }
 
-    // "0" is a hidden option for the operator (former "OB", not shown in prompt text)
-    const validSelection = ["1", "2", "3", "0"].includes(selection);
+    const validSelection = ["1", "2", "3"].includes(selection);
 
     if (validSelection) {
       // Send selection to server
@@ -58,6 +59,10 @@ function setup() {
   // --- Connection status UI ---
   socket.on("connect", () => {
     updateConnStatus("connected", "Connected");
+    if (IS_OPERATOR) {
+      socket.emit("selectId", { userType: "0" });
+      showQR();
+    }
   });
   socket.on("disconnect", () => {
     updateConnStatus("disconnected", "Disconnected");
@@ -92,7 +97,7 @@ function setup() {
   socket.on("clientId", (clientId) => {
     ID = clientId;
     // When we get client ID, prompt for user type
-    if (!selectionMade) {
+    if (!selectionMade && !IS_OPERATOR) {
       promptForUserType();
     }
   });
@@ -115,18 +120,6 @@ function setup() {
         document.getElementById("badge-user").classList.add("visible");
       }
       document.getElementById("badge-clients").classList.add("visible");
-
-      // Show QR toggle button in operator mode (projected on big screen)
-      const qrToggle = document.getElementById("qr-toggle");
-      if (userType === "0") {
-        qrToggle.classList.add("visible");
-        // Auto-show QR code on the operator screen for players to scan
-        showQR();
-      } else {
-        // Players 1/2/3 don't need the QR code or toggle on their devices
-        qrToggle.classList.remove("visible");
-        hideQR();
-      }
     } else {
       // ID already taken, user needs to select again
       alert(`ID ${data.userType} is already taken. Please select another.`);
@@ -135,37 +128,19 @@ function setup() {
       document.getElementById("badge-user-text").textContent = "—";
       document.getElementById("badge-user").classList.remove("visible");
       document.getElementById("badge-clients").classList.remove("visible");
-      promptForUserType();
+      if (!IS_OPERATOR) promptForUserType();
     }
   });
 
-  // QR toggle button click handler
-  document.getElementById("qr-toggle").addEventListener("click", () => {
-    if (qrVisible) {
-      hideQR();
-    } else {
-      showQR();
-    }
-  });
-
-  // Clicking the QR code itself also hides it
-  document.getElementById("qr-wrapper").addEventListener("click", () => {
-    if (qrVisible) hideQR();
-  });
-}
-
-function showQR() {
-  qrVisible = true;
-  document.getElementById("qr-overlay").classList.add("visible");
-  document.getElementById("qr-toggle").classList.add("active");
-  document.getElementById("qr-toggle-icon").textContent = "\u2B07"; // down arrow when visible
-}
-
-function hideQR() {
-  qrVisible = false;
-  document.getElementById("qr-overlay").classList.remove("visible");
-  document.getElementById("qr-toggle").classList.remove("active");
-  document.getElementById("qr-toggle-icon").textContent = "\u2B06"; // up arrow when hidden
+  if (IS_OPERATOR) {
+    document.getElementById("qr-toggle").addEventListener("click", () => {
+      if (qrVisible) hideQR();
+      else showQR();
+    });
+    document.getElementById("qr-wrapper").addEventListener("click", () => {
+      if (qrVisible) hideQR();
+    });
+  }
 }
 
 function updateConnStatus(state, text) {
@@ -179,6 +154,19 @@ function updateConnStatus(state, text) {
       el.className = "hidden " + state;
     }, 2000);
   }
+}
+
+function showQR() {
+  qrVisible = true;
+  document.getElementById("qr-overlay").classList.add("visible");
+  document.getElementById("qr-toggle").classList.add("active");
+  document.getElementById("qr-toggle-icon").textContent = "\u2B07";
+}
+function hideQR() {
+  qrVisible = false;
+  document.getElementById("qr-overlay").classList.remove("visible");
+  document.getElementById("qr-toggle").classList.remove("active");
+  document.getElementById("qr-toggle-icon").textContent = "\u2B06";
 }
 
 let touchReleasedSent = false; // Flag to track if 0 has been sent
@@ -274,16 +262,14 @@ function draw() {
     if (ptData.amp) {
       circle(ptData.amp.x, ptData.amp.y, 12);
     }
-    if (userType === "0") {
-      textAlign(RIGHT, TOP);
-      fill(colors[4]);
-      textSize(12);
-      text(
-        `🎹 ${key}`,
-        ptData.main.x + diameter * 1.5,
-        ptData.main.y - diameter * 1.5,
-      );
-    }
+    textAlign(RIGHT, TOP);
+    fill(colors[4]);
+    textSize(12);
+    text(
+      `🎹 ${key}`,
+      ptData.main.x + diameter * 1.5,
+      ptData.main.y - diameter * 1.5,
+    );
   }
 
   // Build array with { id, pt } for local and remote points.
@@ -358,6 +344,5 @@ function drawNotes() {
     image(p2c, width / 2, height / 2, width, (width * 5) / 3);
   } else if (userType === "3") {
     image(p3c, width / 2, height / 2, width, (width * 5) / 3);
-  } else if (userType === "0") {
   }
 }
