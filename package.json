@@ -1,18 +1,22 @@
 {
-  "name": "codingtrainsocket",
-  "version": "0.0.1",
-  "description": "follow ytb tutorial",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.21.2",
-    "node-osc": "^9.1.4",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "socket.io": "^4.8.1"
-  }
+    "name": "inarticulate-iii",
+    "version": "0.1.0",
+    "private": true,
+    "description": "A networked digital score for three performers.",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node server.js --audio-mode internal",
+        "dev:none": "node server.js --audio-mode none",
+        "check": "node --check server.js && node --check audio/audio-controller.js && node --check audio/osc-controller.js && node --check public/sketch.js",
+        "test": "node --test"
+    },
+    "dependencies": {
+        "express": "^4.21.2",
+        "node-osc": "^9.1.4",
+        "osc-min": "^1.1.2",
+        "qrcode": "^1.5.4",
+        "qrcode-terminal": "^0.12.0",
+        "socket.io": "^4.8.1"
+    }
 }

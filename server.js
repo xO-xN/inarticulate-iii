@@ -1,21 +1,222 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const express = require("express");
-const os = require("os");
-const readline = require("readline");
-const { Client } = require("node-osc");
+const os = require("node:os");
 const QRCode = require("qrcode");
 const qrcode = require("qrcode-terminal");
+const { AudioController } = require("./audio/audio-controller");
+
+const PROJECT_ROOT = __dirname;
+const MANIFEST_PATH = path.join(PROJECT_ROOT, "manifest.json");
+
+const VALID_AUDIO_MODES = new Set([
+  "internal",
+  "external",
+  "none",
+]);
+
+const VALID_PLAYER_IDS = new Set([
+  "1",
+  "2",
+  "3",
+]);
+
+
+// ============================================================
+// Project configuration
+// ============================================================
+
+const manifest = loadManifest(MANIFEST_PATH);
+const cliOptions = parseCliOptions(process.argv.slice(2));
+
+const audioMode = resolveAudioMode(
+  cliOptions.audioMode,
+  manifest,
+);
+
+const oscTarget = resolveOscTarget(
+  audioMode,
+  manifest,
+);
+
+const serverConfig = resolveServerConfig(
+  manifest,
+);
+
+
+// ============================================================
+// Express applications
+// ============================================================
 
 const app = express();
-let client = null; // created after user input
+const obApp = express();
 
-const sendOSC = (...args) => client && client.send(...args);
+app.use(
+  express.static(
+    path.join(PROJECT_ROOT, "public"),
+  ),
+);
 
-app.use(express.static("public"));
+obApp.use(
+  express.static(
+    path.join(PROJECT_ROOT, "public"),
+  ),
+);
 
-const server = app.listen(6868, () => {
-  printServerInfo();
-  promptOSCTarget();
+
+// ============================================================
+// Audio controller
+// ============================================================
+//
+// AudioController 内部根据 audioMode 选择：
+//
+// internal
+//     /n_set、/s_new、/d_load
+//
+// external
+//     /p1、/p1xy、/p1-p2
+//
+// none
+//     no-op
+// ============================================================
+
+const audioController = new AudioController({
+  mode: audioMode,
+  target: oscTarget,
+  projectRoot: PROJECT_ROOT,
+  manifest,
 });
+
+let audioStartupError = null;
+let audioStatus = audioMode === "none" ? "disabled" : "starting";
+let performerListening = false;
+let monitorListening = false;
+let serverStartupError = null;
+let isShuttingDown = false;
+let shutdownPromise = null;
+
+const audioReady = audioController
+  .start()
+  .then(() => {
+    audioStatus = audioMode === "none" ? "disabled" : "ready";
+
+    console.log(
+      `[audio] ${formatAudioMode(audioMode)} ready.`,
+    );
+
+    return true;
+  })
+  .catch((error) => {
+    audioStartupError = error;
+    audioStatus = "error";
+
+    console.error(
+      `[audio] failed to start ${formatAudioMode(audioMode)}:`,
+      error,
+    );
+
+    // 音频不可用时仍保留 HTTP 和 Socket.IO，
+    // 以便 PNDS App 和网页端读取明确的 error 状态。
+    return false;
+  });
+
+
+// 所有 Socket.IO 事件通过这个函数进入 AudioController。
+function dispatchAudio(label, operation) {
+  if (isShuttingDown) {
+    return Promise.resolve();
+  }
+
+  return audioReady
+    .then((ready) => {
+      if (!ready) {
+        console.warn(
+          `[audio] skipped "${label}" because audio is unavailable.`,
+        );
+
+        return undefined;
+      }
+
+      return operation();
+    })
+    .catch((error) => {
+      console.error(
+        `[audio] ${label} failed:`,
+        error,
+      );
+
+      return undefined;
+    });
+}
+
+
+// ============================================================
+// PNDS runtime health
+// ============================================================
+
+function getRuntimeStatus() {
+  if (isShuttingDown) {
+    return "stopping";
+  }
+
+  if (audioStatus === "error" || serverStartupError) {
+    return "error";
+  }
+
+  if (!performerListening || !monitorListening || audioStatus === "starting") {
+    return "starting";
+  }
+
+  return "ready";
+}
+
+function getHealthPayload() {
+  const payload = {
+    status: getRuntimeStatus(),
+    projectId: manifest.id,
+    audioMode,
+    audio: {
+      status: audioStatus,
+      target: oscTarget ? oscTarget.display : null,
+    },
+    scoreServer: {
+      performerPort: serverConfig.performerPort,
+      monitorPort: serverConfig.monitorPort,
+    },
+  };
+
+  if (audioStartupError) {
+    payload.audio.error = audioStartupError.message;
+  }
+
+  if (serverStartupError) {
+    payload.scoreServer.error = serverStartupError.message;
+  }
+
+  return payload;
+}
+
+function healthHandler(request, response) {
+  response.json(getHealthPayload());
+}
+
+app.get("/__pnds/health", healthHandler);
+obApp.get("/__pnds/health", healthHandler);
+
+
+// ============================================================
+// HTTP servers
+// ============================================================
+
+const server = app.listen(
+  serverConfig.performerPort,
+  "0.0.0.0",
+  () => {
+    performerListening = true;
+    printRuntimeInfo();
+    printServerInfo();
+  },
+);
 
 const io = require("socket.io")(server, {
   cors: {
@@ -24,288 +225,967 @@ const io = require("socket.io")(server, {
   },
 });
 
-// OB operator view on port 6869
-const obApp = express();
-obApp.use(express.static("public"));
-obApp.listen(6869, () => {
-  console.log("Operator view: http://<ip>:6869");
+const monitorServer = obApp.listen(
+  serverConfig.monitorPort,
+  "0.0.0.0",
+  () => {
+    monitorListening = true;
+    console.log(
+      `Operator view listening on port ${serverConfig.monitorPort}`,
+    );
+  },
+);
+
+server.on("error", (error) => {
+  console.error(
+    `Performer HTTP server failed on port ${serverConfig.performerPort}:`,
+    error,
+  );
+
+  serverStartupError = error;
+  process.exitCode = 1;
 });
+
+monitorServer.on("error", (error) => {
+  console.error(
+    `Monitor HTTP server failed on port ${serverConfig.monitorPort}:`,
+    error,
+  );
+
+  serverStartupError = error;
+  process.exitCode = 1;
+});
+
+
+// ============================================================
+// Manifest and configuration helpers
+// ============================================================
+
+function loadManifest(manifestPath) {
+  let rawManifest;
+
+  try {
+    rawManifest = fs.readFileSync(
+      manifestPath,
+      "utf8",
+    );
+  } catch (error) {
+    throw new Error(
+      `Unable to read manifest.json at ${manifestPath}: ${error.message}`,
+    );
+  }
+
+  try {
+    return JSON.parse(rawManifest);
+  } catch (error) {
+    throw new Error(
+      `Unable to parse manifest.json at ${manifestPath}: ${error.message}`,
+    );
+  }
+}
+
+function parseCliOptions(args) {
+  let audioMode = null;
+
+  for (
+    let index = 0;
+    index < args.length;
+    index += 1
+  ) {
+    const argument = args[index];
+
+    if (argument === "--audio-mode") {
+      const nextArgument = args[index + 1];
+
+      if (
+        !nextArgument ||
+        nextArgument.startsWith("--")
+      ) {
+        throw new Error(
+          "Missing value for --audio-mode. " +
+            "Expected internal, external, or none.",
+        );
+      }
+
+      audioMode = nextArgument;
+      index += 1;
+      continue;
+    }
+
+    if (argument.startsWith("--audio-mode=")) {
+      audioMode = argument.slice(
+        "--audio-mode=".length,
+      );
+      continue;
+    }
+
+    if (
+      argument === "--help" ||
+      argument === "-h"
+    ) {
+      printUsage();
+      process.exit(0);
+    }
+
+    throw new Error(
+      `Unknown command-line argument: ${argument}. ` +
+        "Use --audio-mode internal|external|none.",
+    );
+  }
+
+  return {
+    audioMode,
+  };
+}
+
+function printUsage() {
+  console.log(
+    "Usage: node server.js " +
+      "[--audio-mode internal|external|none]",
+  );
+
+  console.log("");
+  console.log("Configuration:");
+  console.log(
+    "  PNDS_OSC_TARGET=host:port",
+  );
+
+  console.log("");
+  console.log("Examples:");
+
+  console.log(
+    "  node server.js",
+  );
+
+  console.log(
+    "  node server.js --audio-mode internal",
+  );
+
+  console.log(
+    "  PNDS_OSC_TARGET=127.0.0.1:57120 " +
+      "node server.js --audio-mode external",
+  );
+
+  console.log(
+    "  node server.js --audio-mode none",
+  );
+}
+
+function resolveAudioMode(cliMode, currentManifest) {
+  const manifestAudio =
+    currentManifest.audio || {};
+
+  const requestedMode =
+    cliMode ||
+    manifestAudio.defaultMode;
+
+  const supportedModes =
+    manifestAudio.supportedModes || [];
+
+  if (!requestedMode) {
+    throw new Error(
+      "No audio mode configured. " +
+        "Set audio.defaultMode in manifest.json " +
+        "or use --audio-mode.",
+    );
+  }
+
+  if (!VALID_AUDIO_MODES.has(requestedMode)) {
+    throw new Error(
+      `Unsupported audio mode: ${requestedMode}. ` +
+        "Expected internal, external, or none.",
+    );
+  }
+
+  if (
+    supportedModes.length > 0 &&
+    !supportedModes.includes(requestedMode)
+  ) {
+    throw new Error(
+      `Audio mode '${requestedMode}' is not supported ` +
+        "by this PNDS project. " +
+        `Supported modes: ${supportedModes.join(", ")}.`,
+    );
+  }
+
+  return requestedMode;
+}
+
+function resolveOscTarget(
+  mode,
+  currentManifest,
+) {
+  if (mode === "none") {
+    return null;
+  }
+
+  const environmentTarget =
+    process.env.PNDS_OSC_TARGET?.trim();
+
+  const standaloneTarget =
+    currentManifest.audio?.standaloneTarget;
+
+  let rawTarget = environmentTarget;
+
+  // 只有 Internal 模式可以使用 standaloneTarget。
+  // External 模式必须由 App 或用户通过
+  // PNDS_OSC_TARGET 提供目标。
+  if (!rawTarget && mode === "internal") {
+    rawTarget = standaloneTarget;
+  }
+
+  if (!rawTarget) {
+    throw new Error(
+      `No OSC target configured for '${mode}' mode. ` +
+        "Set PNDS_OSC_TARGET=host:port.",
+    );
+  }
+
+  return parseOscTarget(rawTarget);
+}
+
+function parseOscTarget(rawTarget) {
+  const target = String(rawTarget).trim();
+
+  if (!target) {
+    throw new Error(
+      "PNDS_OSC_TARGET cannot be empty.",
+    );
+  }
+
+  let host;
+  let portText;
+
+  // IPv6: [::1]:57110
+  if (target.startsWith("[")) {
+    const closingBracket =
+      target.indexOf("]");
+
+    if (
+      closingBracket < 0 ||
+      target[closingBracket + 1] !== ":"
+    ) {
+      throw new Error(
+        `Invalid OSC target '${target}'. ` +
+          "Expected [ipv6-host]:port.",
+      );
+    }
+
+    host = target.slice(
+      1,
+      closingBracket,
+    );
+
+    portText = target.slice(
+      closingBracket + 2,
+    );
+  } else {
+    const separatorIndex =
+      target.lastIndexOf(":");
+
+    if (separatorIndex <= 0) {
+      throw new Error(
+        `Invalid OSC target '${target}'. ` +
+          "Expected host:port.",
+      );
+    }
+
+    host = target.slice(
+      0,
+      separatorIndex,
+    );
+
+    portText = target.slice(
+      separatorIndex + 1,
+    );
+  }
+
+  const port = Number(portText);
+
+  if (!host) {
+    throw new Error(
+      `Invalid OSC target '${target}': host is empty.`,
+    );
+  }
+
+  if (
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) {
+    throw new Error(
+      `Invalid OSC target '${target}': ` +
+        "port must be an integer from 1 to 65535.",
+    );
+  }
+
+  return {
+    host,
+    port,
+    display: target,
+  };
+}
+
+function resolveServerConfig(currentManifest) {
+  const scoreServer =
+    currentManifest.scoreServer || {};
+
+  const performerPort = parseHttpPort(
+    scoreServer.performerPort,
+    "scoreServer.performerPort",
+  );
+
+  const monitorPort = parseHttpPort(
+    scoreServer.monitorPort,
+    "scoreServer.monitorPort",
+  );
+
+  if (performerPort === monitorPort) {
+    throw new Error(
+      "scoreServer.performerPort and " +
+        "scoreServer.monitorPort must be different.",
+    );
+  }
+
+  return {
+    performerPort,
+    monitorPort,
+  };
+}
+
+function parseHttpPort(value, fieldName) {
+  const port = Number(value);
+
+  if (
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) {
+    throw new Error(
+      `${fieldName} must be an integer from 1 to 65535.`,
+    );
+  }
+
+  return port;
+}
+
+function formatAudioMode(mode) {
+  return {
+    internal: "Internal Synth",
+    external: "External Synth",
+    none: "No Synth",
+  }[mode] || mode;
+}
+
+
+// ============================================================
+// Runtime information
+// ============================================================
+
+function printRuntimeInfo() {
+  console.log(
+    `Audio mode: ${formatAudioMode(audioMode)} (${audioMode})`,
+  );
+
+  console.log(
+    `OSC target: ${
+      oscTarget
+        ? oscTarget.display
+        : "disabled"
+    }`,
+  );
+
+  console.log(
+    `Performer server: http://<ip>:${serverConfig.performerPort}`,
+  );
+
+  console.log(
+    `Monitor server: http://<ip>:${serverConfig.monitorPort}`,
+  );
+
+  if (audioStartupError) {
+    console.log(
+      "[audio] startup error was recorded; " +
+        "audio events will be skipped.",
+    );
+  }
+}
+
+function getHostForUrl(request) {
+  const hostname =
+    request.hostname || "127.0.0.1";
+
+  if (hostname.includes(":")) {
+    return `[${hostname}]`;
+  }
+
+  return hostname;
+}
+
+function getPerformerUrl(request) {
+  const protocol =
+    request.protocol || "http";
+
+  const host = getHostForUrl(request);
+
+  return (
+    `${protocol}://${host}:` +
+    `${serverConfig.performerPort}/`
+  );
+}
+
+
+// ============================================================
+// QR code
+// ============================================================
+//
+// 无论从 performer 端口还是 monitor 端口访问 /qr，
+// 始终生成 performer URL。
+// ============================================================
 
 function printServerInfo() {
   const nets = os.networkInterfaces();
+  let printedAddress = false;
+
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
-      if (net.family === "IPv4" && !net.internal) {
-        const url = "http://" + net.address + ":6868";
-        console.log("Server Address: " + url);
-        qrcode.generate(url, { small: true });
+      if (
+        net.family === "IPv4" &&
+        !net.internal
+      ) {
+        const url =
+          "http://" +
+          net.address +
+          ":" +
+          serverConfig.performerPort +
+          "/";
+
+        console.log(
+          "Performer address: " + url,
+        );
+
+        qrcode.generate(
+          url,
+          { small: true },
+        );
+
+        printedAddress = true;
       }
     }
   }
+
+  if (!printedAddress) {
+    console.log(
+      `Performer address: http://127.0.0.1:${serverConfig.performerPort}/`,
+    );
+  }
 }
-// QR code endpoint - generates SVG for the server URL
-// Players scan this to quickly connect from their phones
-const qrHandler = (req, res) => {
-  const url = req.protocol + "://" + req.headers.host + "/";
-  QRCode.toString(url, { type: "svg", width: 6, margin: 1 }, (err, svg) => {
-    if (err) {
-      res.status(500).send("Error generating QR code");
-      return;
-    }
-    res.type("image/svg+xml");
-    res.send(svg);
-  });
+
+const qrHandler = (request, response) => {
+  const url = getPerformerUrl(request);
+
+  QRCode.toString(
+    url,
+    {
+      type: "svg",
+      width: 6,
+      margin: 1,
+    },
+    (error, svg) => {
+      if (error) {
+        response
+          .status(500)
+          .send("Error generating QR code");
+
+        return;
+      }
+
+      response.type("image/svg+xml");
+      response.send(svg);
+    },
+  );
 };
+
 app.get("/qr", qrHandler);
 obApp.get("/qr", qrHandler);
 
-let nextTempId = 1;
-let assignedIds = new Set(); // Player IDs ("1", "2", "3") currently in use
 
-// Broadcast active player count (excludes "0" operator, excludes unselected connections)
+// ============================================================
+// Player state
+// ============================================================
+
+let nextTempId = 1;
+const assignedIds = new Set();
+
+function isPlayerId(value) {
+  return VALID_PLAYER_IDS.has(
+    String(value),
+  );
+}
+
 function broadcastClientCount() {
   let count = 0;
-  for (const sock of io.sockets.sockets.values()) {
-    if (sock.userType && sock.userType !== "0") count++;
+
+  for (
+    const sock of io.sockets.sockets.values()
+  ) {
+    if (
+      sock.userType &&
+      sock.userType !== "0"
+    ) {
+      count += 1;
+    }
   }
+
   io.emit("clientCount", count);
 }
 
+
+// ============================================================
+// Socket.IO
+// ============================================================
+
 io.on("connection", (socket) => {
-  // Assign a unique session-only temp ID (monotonic, never recycled)
+  // 分配临时 session ID。
+  // 选择 Player 后会改成 1、2 或 3。
   socket.clientId = nextTempId++;
-  socket.emit("clientId", socket.clientId);
+
+  socket.emit(
+    "clientId",
+    socket.clientId,
+  );
+
   broadcastClientCount();
 
-  // Handle ID selection from client
-  socket.on("selectId", (data) => {
-    const userType = data.userType;
 
-    // For IDs 1, 2, 3 - check if already taken
-    if (userType !== "0" && assignedIds.has(userType)) {
+  // ----------------------------------------------------------
+  // Player ID selection
+  // ----------------------------------------------------------
+
+  socket.on("selectId", (data) => {
+    const userType =
+      data && data.userType !== undefined
+        ? String(data.userType)
+        : null;
+
+    if (
+      userType !== "0" &&
+      !isPlayerId(userType)
+    ) {
       socket.emit("idConfirmation", {
         status: "rejected",
-        userType: userType,
-        message: "ID already taken",
+        userType,
+        message: "Invalid player ID.",
       });
+
       return;
     }
 
-    // If user had a previous ID (not the operator), free it
-    if (socket.userType && socket.userType !== "0") {
-      assignedIds.delete(socket.userType);
+    if (
+      userType !== "0" &&
+      assignedIds.has(userType)
+    ) {
+      socket.emit("idConfirmation", {
+        status: "rejected",
+        userType,
+        message: "ID already taken",
+      });
+
+      return;
     }
 
-    // Assign new ID
+    if (
+      socket.userType &&
+      socket.userType !== "0"
+    ) {
+      assignedIds.delete(
+        socket.userType,
+      );
+    }
+
     socket.userType = userType;
+
     if (userType !== "0") {
       assignedIds.add(userType);
-      // For numeric IDs, set clientId to match the selected number
-      socket.clientId = parseInt(userType);
+      socket.clientId = parseInt(
+        userType,
+        10,
+      );
     }
 
     socket.emit("idConfirmation", {
       status: "accepted",
-      userType: userType,
+      userType,
     });
 
-    // After confirmation (so client has set selectionMade=true before receiving this),
-    // tell the client their final clientId so line IDs use player numbers, not temp IDs
-    // and broadcast the updated player count
     if (userType !== "0") {
-      socket.emit("clientId", socket.clientId);
+      socket.emit(
+        "clientId",
+        socket.clientId,
+      );
+
       broadcastClientCount();
     }
-
-    //console.log(`Client ${socket.id} selected ID type: ${userType}`);
   });
 
+
+  // ----------------------------------------------------------
+  // Point event
+  // ----------------------------------------------------------
+
   socket.on("point", (data) => {
-    // Only process data from non-observer clients
-    if (socket.userType === "0") return;
+    if (!isPlayerId(socket.userType)) {
+      return;
+    }
 
-    const pAddr = "/p" + socket.clientId; // on/off signal
-    const xyAddr = "/p" + socket.clientId + "xy"; // position + amplitude
+    const playerId = Number(
+      socket.userType,
+    );
 
-    // Broadcast to other clients for visual display (unchanged)
-    if (Array.isArray(data) && data.length === 0) {
+    const isActive = !(
+      Array.isArray(data) &&
+      data.length === 0
+    );
+
+
+    // --------------------------------------------------------
+    // Broadcast point data to other browsers
+    // --------------------------------------------------------
+
+    if (!isActive) {
       socket.broadcast.emit("pointSend", {
         clear: true,
-        clientId: socket.clientId,
+        clientId: playerId,
       });
     } else if (data && data.main) {
       socket.broadcast.emit("pointSend", {
-        clientId: socket.clientId,
+        clientId: playerId,
         main: data.main,
         amp: data.amp,
       });
     }
 
-    // OSC: /pN — send on/off with 3 repeats for both 0 and 1
-    // Cancel any pending release retries when a new touch arrives
+
+    // --------------------------------------------------------
+    // Cancel pending release retries
+    // --------------------------------------------------------
+
     if (socket._releaseRetry) {
       clearTimeout(socket._releaseRetry);
       socket._releaseRetry = null;
     }
 
-    const isActive = !(Array.isArray(data) && data.length === 0);
-    const newVal = isActive ? 1 : 0;
+
+    // --------------------------------------------------------
+    // Gate
+    // --------------------------------------------------------
 
     if (isActive) {
-      // Touch active: frame-driven 3-repeat (client keeps sending frames)
-      if (socket.lastPVal === undefined) socket.lastPVal = -1;
-      if (socket.pSendCount === undefined) socket.pSendCount = 0;
-      if (newVal !== socket.lastPVal) {
-        socket.lastPVal = newVal;
+      if (socket.lastPVal === undefined) {
+        socket.lastPVal = -1;
+      }
+
+      if (socket.pSendCount === undefined) {
         socket.pSendCount = 0;
       }
+
+      if (socket.lastPVal !== 1) {
+        socket.lastPVal = 1;
+        socket.pSendCount = 0;
+      }
+
       if (socket.pSendCount < 3) {
-        sendOSC(pAddr, 1, (err) => {
-          if (err)
-            console.error("OSC p err for player " + socket.clientId + ":", err);
-        });
-        socket.pSendCount++;
+        dispatchAudio(
+          `player ${playerId} gate on`,
+          () =>
+            audioController.setPlayerGate(
+              playerId,
+              1,
+            ),
+        );
+
+        socket.pSendCount += 1;
       }
     } else {
-      // Release: client sends point,[] only once, so repeat via timer
       socket.lastPVal = 0;
       socket.pSendCount = 0;
-      const doSend = () => {
-        sendOSC(pAddr, 0, (err) => {
-          if (err)
-            console.error("OSC p err for player " + socket.clientId + ":", err);
-        });
-        socket.pSendCount++;
+
+      const sendRelease = () => {
+        dispatchAudio(
+          `player ${playerId} release`,
+          () =>
+            audioController.releasePlayer(
+              playerId,
+            ),
+        );
+
+        socket.pSendCount += 1;
+
         if (socket.pSendCount < 3) {
-          socket._releaseRetry = setTimeout(doSend, 50);
+          socket._releaseRetry = setTimeout(
+            sendRelease,
+            50,
+          );
+        } else {
+          socket._releaseRetry = null;
         }
       };
-      doSend();
+
+      sendRelease();
     }
 
-    // OSC: /pNxy — relX, relY, amp, only when values change
+
+    // --------------------------------------------------------
+    // Position data
+    //
+    // data.relX → x
+    // data.relY → y
+    // data.amp  → External 模式的兼容参数
+    //
+    // Internal 模式中，AudioController 当前只使用 x/y。
+    // --------------------------------------------------------
+
     if (socket.lastXY === undefined) {
-      socket.lastXY = { relX: null, relY: null, amp: null };
+      socket.lastXY = {
+        relX: null,
+        relY: null,
+        amp: null,
+      };
     }
 
-    if (isActive && data && data.main) {
-      const relX = data.relX !== undefined ? data.relX : 0.5;
-      const relY = data.relY !== undefined ? data.relY : 0.5;
-      const amp = data.amp ? Math.min(data.amp.length, 1) : 0;
+    if (
+      isActive &&
+      data &&
+      data.main
+    ) {
+      const relX =
+        data.relX !== undefined
+          ? Number(data.relX)
+          : 0.5;
+
+      const relY =
+        data.relY !== undefined
+          ? Number(data.relY)
+          : 0.5;
+
+      const rawAmp =
+        data.amp &&
+        Number.isFinite(
+          Number(data.amp.length),
+        )
+          ? Number(data.amp.length)
+          : 0;
+
+      const amp = Math.max(
+        0,
+        Math.min(1, rawAmp),
+      );
 
       const last = socket.lastXY;
-      if (relX !== last.relX || relY !== last.relY || amp !== last.amp) {
-        socket.lastXY = { relX, relY, amp };
-        sendOSC(xyAddr, relX, relY, amp, (err) => {
-          if (err)
-            console.error(
-              "OSC xy err for player " + socket.clientId + ":",
-              err,
-            );
-        });
+
+      const changed =
+        relX !== last.relX ||
+        relY !== last.relY ||
+        amp !== last.amp;
+
+      if (changed) {
+        socket.lastXY = {
+          relX,
+          relY,
+          amp,
+        };
+
+        dispatchAudio(
+          `player ${playerId} position`,
+          () =>
+            audioController.setPlayerPosition(
+              playerId,
+              {
+                x: relX,
+                y: relY,
+                amp,
+              },
+            ),
+        );
       }
     } else if (!isActive) {
-      // Reset so first touch after release always sends
-      socket.lastXY = { relX: null, relY: null, amp: null };
+      socket.lastXY = {
+        relX: null,
+        relY: null,
+        amp: null,
+      };
     }
   });
 
-  socket.on("lineStroke", (data) => {
-    // Only process line data from non-observer clients
-    if (socket.userType === "0") return;
 
-    sendOSC("/" + data.id, data.stroke, (err) => {
-      if (err) {
-        console.error("Error sending OSC line message:", err);
-      }
-    });
+  // ----------------------------------------------------------
+  // Line stroke
+  // ----------------------------------------------------------
+
+  socket.on("lineStroke", (data) => {
+    if (!isPlayerId(socket.userType)) {
+      return;
+    }
+
+    if (
+      !data ||
+      typeof data.id !== "string"
+    ) {
+      console.warn(
+        "[audio] ignoring invalid lineStroke:",
+        data,
+      );
+
+      return;
+    }
+
+    const stroke = Number(
+      data.stroke,
+    );
+
+    if (!Number.isFinite(stroke)) {
+      console.warn(
+        "[audio] ignoring invalid line stroke value:",
+        data,
+      );
+
+      return;
+    }
+
+    dispatchAudio(
+      `line ${data.id}`,
+      () =>
+        audioController.setPairStroke(
+          data.id,
+          stroke,
+        ),
+    );
   });
 
+
+  // ----------------------------------------------------------
+  // Disconnect
+  // ----------------------------------------------------------
+
   socket.on("disconnect", () => {
-    const isPlayer = socket.userType && socket.userType !== "0";
+    if (isShuttingDown) {
+      if (socket._releaseRetry) {
+        clearTimeout(socket._releaseRetry);
+        socket._releaseRetry = null;
+      }
 
-    // Only actual players sent data — only they need cleanup
+      return;
+    }
+
+    const isPlayer =
+      isPlayerId(socket.userType);
+
     if (isPlayer) {
-      const playerId = parseInt(socket.userType); // 1, 2, or 3
+      const playerId = Number(
+        socket.userType,
+      );
 
-      // OSC: clear this player's point, amp, and position signals
-      sendOSC("/p" + playerId, 0, (err) => {
-        if (err)
-          console.error(
-            "Error sending OSC clear for player " + playerId + ":",
-            err,
-          );
-      });
-      sendOSC("/p" + playerId + "amp", 0, (err) => {
-        if (err)
-          console.error(
-            "Error sending OSC amp clear for player " + playerId + ":",
-            err,
-          );
-      });
+      dispatchAudio(
+        `player ${playerId} disconnect`,
+        () =>
+          audioController.releasePlayer(
+            playerId,
+          ),
+      );
 
-      // Broadcast: remove this player's point from other clients
       socket.broadcast.emit("pointSend", {
         clear: true,
         clientId: playerId,
       });
 
-      // Free the player ID for reuse
-      assignedIds.delete(socket.userType);
+      assignedIds.delete(
+        socket.userType,
+      );
+    }
+
+    if (socket._releaseRetry) {
+      clearTimeout(socket._releaseRetry);
+      socket._releaseRetry = null;
     }
 
     delete socket.clientId;
     delete socket.userType;
+
     broadcastClientCount();
   });
 });
 
-// ── Init OSC target: from CLI args or interactive prompt ───────────
-function promptOSCTarget() {
-  const args = process.argv.slice(2);
 
-  let cleanIP = args[0] || null;
-  let cleanPort = args[1] ? parseInt(args[1], 10) : null;
+// ============================================================
+// Graceful shutdown
+// ============================================================
 
-  if (cleanIP) {
-    // From command-line arguments
-    if (!cleanPort || isNaN(cleanPort) || cleanPort < 1 || cleanPort > 65535) {
-      cleanPort = 3333;
+function clearReleaseRetries() {
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket._releaseRetry) {
+      clearTimeout(socket._releaseRetry);
+      socket._releaseRetry = null;
     }
-    client = new Client(cleanIP, cleanPort);
-    console.log("OSC Send Address: " + cleanIP + ":" + cleanPort);
-    console.log("");
-    return;
   }
+}
 
-  // Interactive prompt
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  rl.question("  OSC Send Address (IP:Port): ", (input) => {
-    const trimmed = input.trim();
-
-    cleanIP = "127.0.0.1";
-    cleanPort = 3333;
-
-    const colonIndex = trimmed.lastIndexOf(":");
-    if (colonIndex > 0) {
-      const possiblePort = parseInt(trimmed.slice(colonIndex + 1), 10);
-      if (!isNaN(possiblePort) && possiblePort > 0 && possiblePort <= 65535) {
-        cleanPort = possiblePort;
-        cleanIP = trimmed.slice(0, colonIndex);
-      } else {
-        cleanIP = trimmed;
+function closeHttpServer(httpServer, label) {
+  return new Promise((resolve) => {
+    httpServer.close((error) => {
+      if (error && error.code !== "ERR_SERVER_NOT_RUNNING") {
+        console.error(`[shutdown] failed to close ${label}:`, error);
+        process.exitCode = 1;
       }
-    } else if (trimmed) {
-      cleanIP = trimmed;
-    }
 
-    client = new Client(cleanIP, cleanPort);
-    console.log("OSC Send Address: " + cleanIP + ":" + cleanPort);
-    console.log("");
-    rl.close();
+      resolve();
+    });
   });
 }
+
+function closeSocketIo() {
+  return new Promise((resolve) => {
+    io.close(resolve);
+  });
+}
+
+function shutdown(signal) {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  isShuttingDown = true;
+  console.log(`[shutdown] received ${signal}.`);
+
+  shutdownPromise = (async () => {
+    clearReleaseRetries();
+    await closeSocketIo();
+    await audioReady;
+
+    try {
+      await audioController.stop();
+    } catch (error) {
+      console.error("[shutdown] failed to stop audio:", error);
+      process.exitCode = 1;
+    }
+
+    await Promise.all([
+      closeHttpServer(server, "performer HTTP server"),
+      closeHttpServer(monitorServer, "monitor HTTP server"),
+    ]);
+
+    console.log("[shutdown] complete.");
+  })().catch((error) => {
+    console.error("[shutdown] failed:", error);
+    process.exitCode = 1;
+  });
+
+  return shutdownPromise;
+}
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});

@@ -1,0 +1,29 @@
+{
+    "schemaVersion": 1,
+    "id": "inarticulate-iii",
+    "name": "Inarticulate III",
+    "version": "0.1.0",
+    "description": "A networked digital score for three performers.",
+    "scoreServer": {
+        "entry": "server.js",
+        "workingDirectory": ".",
+        "performerPort": 6868,
+        "monitorPort": 6869
+    },
+    "audio": {
+            "defaultMode": "internal",
+            "supportedModes": [
+                "internal",
+                "external",
+                "none"
+            ],
+            "synthdefs": [
+                "supercollider/synthdefs/inarticulate-iii.scsyndef"
+            ],
+            "standaloneTarget": "127.0.0.1:57110"
+        },
+    "roles": {
+        "performer": "/",
+        "monitor": "/"
+    }
+}
