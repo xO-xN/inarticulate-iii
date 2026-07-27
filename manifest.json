@@ -11,19 +11,20 @@
         "monitorPort": 6869
     },
     "audio": {
-            "defaultMode": "internal",
-            "supportedModes": [
-                "internal",
-                "external",
-                "none"
-            ],
-            "synthdefs": [
-                "supercollider/synthdefs/inarticulate-iii.scsyndef"
-            ],
-            "standaloneTarget": "127.0.0.1:57110"
+        "defaultMode": "internal",
+        "supportedModes": [
+            "internal",
+            "external",
+            "none"
+        ],
+        "synthdefs": [
+            "supercollider/synthdefs/inarticulate-iii.scsyndef"
+        ],
+        "scsynth": {
+            "sampleRate": 48000,
+            "blockSize": 64,
+            "audioBusChannels": 128
         },
-    "roles": {
-        "performer": "/",
-        "monitor": "/"
+        "standaloneTarget": "127.0.0.1:57110"
     }
 }

@@ -14,7 +14,9 @@
 - Internal 模式使用标准 scsynth OSC，加载项目内的 `.scsyndef`；
 - 裸 `scsynth` + Node server + 浏览器交互的 Internal 音频链路已手动验证可发声；
 - `GET /__pnds/health` 健康接口；
-- `SIGINT` / `SIGTERM` 优雅关闭 Node、Socket.IO、OSC 与项目 Synth node。
+- `SIGINT` / `SIGTERM` 优雅关闭 Node、Socket.IO、OSC 与项目 Synth node；
+- `manifest.json` 已对齐 PNDS V1 schema（`schemaVersion: 1`）；
+- 遵循 PNDS V1 输出总线契约（`PNDS_AUDIO_OUTPUT_BUS`）。
 
 ## 前置条件
 
@@ -64,6 +66,8 @@ node server.js --audio-mode internal
 PNDS_OSC_TARGET=127.0.0.1:57110 \
 node server.js --audio-mode internal
 ```
+
+手动启动时不要设置 `PNDS_AUDIO_OUTPUT_BUS`；项目会回退到硬件输出 bus `0`，直接从声卡出声。
 
 成功时会出现：
 
@@ -162,6 +166,7 @@ Internal 模式正常启动时的返回示例：
 │   ├── dev/inarticulate-iii-debug.scd
 │   ├── source/inarticulate-iii.scd
 │   └── synthdefs/inarticulate-iii.scsyndef
+├── test/output-bus.test.js       # 输出总线解析的最小回归检查
 ├── manifest.json                 # PNDS project 运行配置
 ├── server.js                     # Express、Socket.IO 与运行时生命周期
 └── PROJECT_HANDSOFF.md           # 面向后续开发环境 / AI agent 的交接说明
@@ -175,14 +180,26 @@ Internal 模式正常启动时的返回示例：
 - Internal synth node ID：`1001`；
 - 裸 `scsynth` 的 root group 是 `0`。不要把项目 group 挂到 group `1`，后者通常由 `sclang` 客户端创建，在裸 scsynth 中不存在。
 
+### 输出总线
+
+本项目遵守 PNDS V1 的输出总线契约：
+
+| 运行方式 | `PNDS_AUDIO_OUTPUT_BUS` | synth `out` | 说明 |
+| --- | --- | --- | --- |
+| PNDS App | 由 App 注入（如 `2`） | 该值 | App 的 master synth 从这条 private bus 读取，做总音量后输出到硬件 bus `0` |
+| 手动 standalone | 未设置 | `0` | 直接输出到硬件，便于本地调试 |
+
+变量存在但不是非负整数时，项目会启动失败，而不是静默回退。
+
 ## 检查
 
 ```sh
 npm run check
+npm test
 ```
 
-该命令执行 `server.js`、两个 audio controller 与 `public/sketch.js` 的 Node 语法检查。
+`check` 执行 `server.js`、两个 audio controller 与 `public/sketch.js` 的 Node 语法检查；`test` 运行输出总线解析的回归检查。
 
 ## 下一阶段
 
-下一阶段是构建 PNDS Tauri App。App 的最小职责是：读取 manifest、启动或停止 `scsynth`、向 Node 注入 `PNDS_OSC_TARGET`、启动 score server、轮询 health endpoint，并在退出或切换模式时终止对应进程。详细的现状、约束与实现建议见 [`PROJECT_HANDSOFF.md`](PROJECT_HANDSOFF.md)。
+下一阶段是构建 PNDS Tauri App。App 的最小职责是：读取 manifest、按 `audio.scsynth` 启动或停止 `scsynth`、向 Node 注入 `PNDS_OSC_TARGET` 与 `PNDS_AUDIO_OUTPUT_BUS`、启动 score server、轮询 health endpoint，并在退出或切换模式时终止对应进程。详细的现状、约束与实现建议见 [`PROJECT_HANDSOFF.md`](PROJECT_HANDSOFF.md)。

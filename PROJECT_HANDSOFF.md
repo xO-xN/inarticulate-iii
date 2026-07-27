@@ -10,6 +10,7 @@
 
 - score project 的核心网页、Socket.IO、音频 controller、Internal Synth、health 和关闭接口已经完成；
 - Internal 模式已由用户手动完成端到端验证：裸 `scsynth`、Node score server 与浏览器交互均可正常发声；
+- `manifest.json` 与音频输出已对齐 **PNDS V1 契约**，本项目是 V1 的参考实现；
 - 下一阶段的主要工作是新建并开发 **PNDS Tauri App**；
 - 不要在没有明确需求时重写 p5.js 的作品交互、扩展 SynthDef 音色，或重新引入构建系统。
 
@@ -35,7 +36,7 @@ Internal 启动过程：
 3. `AudioController` 向 scsynth 发 `/status`；
 4. 用 `/d_load` 加载 `supercollider/synthdefs/inarticulate-iii.scsyndef`；
 5. 在裸 scsynth root group `0` 下创建项目 group `1000`；
-6. 在 group `1000` 中创建 synth node `1001`，SynthDef 名为 `inarticulateIII`；
+6. 在 group `1000` 中创建 synth node `1001`，SynthDef 名为 `inarticulateIII`，`out` 取自 `PNDS_AUDIO_OUTPUT_BUS`（缺失时为 `0`）；
 7. 用 `/s_get` 验证 node `1001` 的 `master` control 确实存在；
 8. 浏览器事件经 Node 转换为 `/n_set`。
 
@@ -58,20 +59,24 @@ Inarticulate III/
 │   ├── dev/inarticulate-iii-debug.scd
 │   ├── source/inarticulate-iii.scd
 │   └── synthdefs/inarticulate-iii.scsyndef
+├── test/output-bus.test.js
 ├── manifest.json
 ├── package.json
 ├── server.js
 ├── README.md
-└── PROJECT_HANDOFF.md
+└── PROJECT_HANDSOFF.md
 ```
 
 ### `manifest.json`
 
-PNDS project 的配置源。当前核心内容：
+PNDS project 的配置源，已对齐 PNDS V1 schema：
 
 ```json
 {
+  "schemaVersion": 1,
   "id": "inarticulate-iii",
+  "name": "Inarticulate III",
+  "version": "0.1.0",
   "scoreServer": {
     "entry": "server.js",
     "workingDirectory": ".",
@@ -84,10 +89,21 @@ PNDS project 的配置源。当前核心内容：
     "synthdefs": [
       "supercollider/synthdefs/inarticulate-iii.scsyndef"
     ],
+    "scsynth": {
+      "sampleRate": 48000,
+      "blockSize": 64,
+      "audioBusChannels": 128
+    },
     "standaloneTarget": "127.0.0.1:57110"
   }
 }
 ```
+
+几个容易踩坑的点：
+
+- `audio.scsynth` 在 Internal 模式下是**必填项**，App 用它启动 `scsynth`，三个字段都不可缺；
+- `standaloneTarget` **仅供手动调试**。PNDS App 不得读取它，必须注入自己分配的动态端口；
+- 早期版本的 `roles` 字段已删除。角色边界就是端口本身：`performerPort` 是演奏者页，`monitorPort` 是 App 显示的 conductor / monitor 页，两者都用 `/`。
 
 ### `server.js`
 
@@ -150,6 +166,30 @@ PNDS_OSC_TARGET > manifest.audio.standaloneTarget（仅 Internal standalone 回�
 - `external` 没有 `PNDS_OSC_TARGET` 时必须启动失败；
 - `none` 不需要 target；
 - `standaloneTarget` 不是 External target。
+
+### 输出总线（PNDS V1 契约）
+
+Internal 模式下，项目 **不能**假定自己直接写硬件输出。输出总线由宿主决定：
+
+```text
+PNDS_AUDIO_OUTPUT_BUS   存在  →  synth out = 该值
+                        缺失  →  synth out = 0（硬件）
+                        非法  →  启动失败
+```
+
+完整的 App 侧信号路径：
+
+```text
+项目 synth  ─Out.ar(PNDS_AUDIO_OUTPUT_BUS, 2)─►  private stereo bus
+                                                        │
+                                        App master synth（总音量）
+                                                        │
+                                                  Out.ar(0, 2)  →  CoreAudio
+```
+
+手动 standalone 运行时没有 App master stage，回退到 bus `0` 直接出声。实现在 `audio/audio-controller.js` 的 `resolveOutputBus()`，回归检查在 `test/output-bus.test.js`。
+
+App 还会注入 `PNDS_AUDIO_OUTPUT_CHANNELS=2`。V1 固定立体声，本项目目前忽略该变量；多声道属于后续版本。
 
 ### Internal Synth
 
@@ -237,13 +277,14 @@ score project 不会停止 scsynth，因为 scsynth 属于宿主进程（现在�
 npm install
 ```
 
-静态检查：
+静态检查与回归检查：
 
 ```sh
 npm run check
+npm test
 ```
 
-该检查目前已执行通过。
+两者目前均已执行通过。
 
 ### None
 
@@ -305,28 +346,39 @@ node server.js --audio-mode external
 
 ## 8. 下一阶段：PNDS Tauri App
 
-App 尚未在此仓库中初始化。开始前先与用户确认 App 的仓库位置、技术栈版本、WebView 方案与最小 UI 范围；不要假定 Tauri app 已存在。
+App 尚未在任何仓库中初始化。V1 的完整产品与实现契约已写入平台文档，开始前先读：
 
-建议第一版 MVP：
+```text
+PNDS app 开发/docs/PNDS_APP_REQUIREMENTS.md
+PNDS app 开发/docs/README.md
+```
+
+已确认的关键边界：仅 macOS Apple Silicon；App 内置 `scsynth` 与 Node.js runtime；工程必须自带 `node_modules/`，App 绝不运行 `npm install`；所有配置变更都是完整 session 重启，无热切换。
+
+建议的启动流程：
 
 ```text
 选择 PNDS project directory
   ↓
 读取并校验 manifest.json
   ↓
-选择 audio mode（Internal / External / None）
+选择 audio mode（仅限 manifest.audio.supportedModes）
   ↓
-Internal：选取端口并启动 scsynth
+Internal：按 audio.scsynth 启动 scsynth，分配动态 UDP 端口
+           并在项目 group 之后创建 master synth
 External：要求用户输入 host:port
 None：不启动 scsynth
   ↓
-设置 PNDS_OSC_TARGET（None 不设置）
+注入环境变量（None 不注入）：
+  PNDS_OSC_TARGET
+  PNDS_AUDIO_OUTPUT_BUS
+  PNDS_AUDIO_OUTPUT_CHANNELS
   ↓
 启动 node <entry> --audio-mode <mode>
   ↓
 轮询 http://127.0.0.1:<performerPort>/__pnds/health
   ↓
-status=ready 后显示 performer / monitor 页面
+status=ready 后显示 monitor 页面
   ↓
 模式切换或退出时：先终止 Node，等待其 graceful shutdown；再按需终止 App 自己启动的 scsynth
 ```
@@ -345,6 +397,7 @@ status=ready 后显示 performer / monitor 页面
 
   ```sh
   npm run check
+  npm test
   ```
 
 - 不要无确认执行 `npm audit fix`、大范围依赖升级或重写 p5.js 交互；

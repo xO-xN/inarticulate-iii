@@ -18,6 +18,29 @@ const PAIR_CONTROLS = {
 const DEFAULT_SYNTH_NAME = "inarticulateIII";
 const ROOT_GROUP_ID = 0;
 const DEFAULT_GROUP_ID = 1000;
+const STANDALONE_OUTPUT_BUS = 0;
+
+// PNDS V1 Internal audio contract:
+// PNDS App 分配一条 private stereo bus，并注入 PNDS_AUDIO_OUTPUT_BUS。
+// App 自己的 master synth 从该 bus 读取、控制总音量后输出到硬件 bus 0/1。
+// 手动 standalone 运行时没有 App master stage，直接输出到硬件 bus 0。
+function resolveOutputBus(environment) {
+  const rawBus = environment.PNDS_AUDIO_OUTPUT_BUS;
+
+  if (rawBus === undefined || String(rawBus).trim() === "") {
+    return STANDALONE_OUTPUT_BUS;
+  }
+
+  const bus = Number(rawBus);
+
+  if (!Number.isInteger(bus) || bus < 0) {
+    throw new Error(
+      `Invalid PNDS_AUDIO_OUTPUT_BUS '${rawBus}': expected a non-negative integer.`,
+    );
+  }
+
+  return bus;
+}
 
 function clamp01(value) {
   const number = Number(value);
@@ -84,7 +107,13 @@ function resolveSynthDefPaths(projectRoot, manifest) {
 }
 
 class AudioController {
-  constructor({ mode, target, projectRoot, manifest }) {
+  constructor({
+    mode,
+    target,
+    projectRoot,
+    manifest,
+    environment = process.env,
+  }) {
     if (!VALID_MODES.has(mode)) {
       throw new Error(`Unsupported audio mode: ${mode}`);
     }
@@ -98,6 +127,7 @@ class AudioController {
     this.startPromise = null;
     this.groupId = DEFAULT_GROUP_ID;
     this.synthNodeId = DEFAULT_GROUP_ID + 1;
+    this.outputBus = resolveOutputBus(environment);
     this.synthName =
       manifest.audio?.synthName || DEFAULT_SYNTH_NAME;
   }
@@ -167,7 +197,7 @@ class AudioController {
       oscInteger(1),
       oscInteger(this.groupId),
       "out",
-      oscInteger(0),
+      oscInteger(this.outputBus),
       "master",
       oscFloat(0.25),
     );
@@ -315,4 +345,5 @@ module.exports = {
   AudioController,
   clamp01,
   parsePair,
+  resolveOutputBus,
 };
