@@ -19,6 +19,168 @@ body {
     background-color: black;
 }
 
+.monitor-panel {
+    display: none;
+}
+
+body.monitor-mode .monitor-panel {
+    position: fixed;
+    top: 28px;
+    bottom: 28px;
+    z-index: 5;
+    display: block;
+    width: clamp(230px, 21vw, 340px);
+    box-sizing: border-box;
+    color: rgba(229, 229, 229, 0.9);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    pointer-events: none;
+}
+
+#monitor-left-panel {
+    left: 28px;
+    padding-right: 22px;
+    border-right: 1px solid rgba(229, 229, 229, 0.2);
+}
+
+#monitor-right-panel {
+    right: 28px;
+    padding-left: 22px;
+    border-left: 1px solid rgba(229, 229, 229, 0.2);
+}
+
+.panel-kicker {
+    margin: 0 0 8px;
+    color: rgba(229, 229, 229, 0.5);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+}
+
+#monitor-left-panel h1,
+#monitor-right-panel h2 {
+    margin: 0;
+    color: #ffffff;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+#monitor-left-panel h1 {
+    font-size: clamp(20px, 2vw, 28px);
+    line-height: 1.22;
+}
+
+.strategy-section {
+    margin-top: clamp(22px, 3vh, 38px);
+}
+
+.strategy-section h2 {
+    margin: 0 0 10px;
+    color: rgba(229, 229, 229, 0.62);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+}
+
+.strategy-section ol {
+    display: grid;
+    gap: 9px;
+    margin: 0;
+    padding-left: 22px;
+    font-size: clamp(12px, 1.1vw, 14px);
+    line-height: 1.55;
+}
+
+.strategy-section li::marker {
+    color: rgba(229, 229, 229, 0.45);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+}
+
+.strategy-note {
+    padding-top: 16px;
+    border-top: 1px solid rgba(229, 229, 229, 0.14);
+}
+
+.osc-panel-heading {
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(229, 229, 229, 0.2);
+}
+
+#monitor-right-panel h2 {
+    font-size: 20px;
+}
+
+.osc-panel-note {
+    margin: 7px 0 0;
+    color: rgba(229, 229, 229, 0.48);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+#osc-rows {
+    display: grid;
+    gap: 2px;
+    margin-top: 14px;
+}
+
+.osc-row {
+    display: grid;
+    grid-template-columns: minmax(58px, 0.8fr) minmax(0, 1.7fr);
+    gap: 10px;
+    align-items: baseline;
+    min-height: 27px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(229, 229, 229, 0.08);
+    color: rgba(229, 229, 229, 0.45);
+    transition: color 0.16s ease, background-color 0.16s ease;
+}
+
+.osc-row code,
+.osc-row output {
+    overflow: hidden;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: clamp(10px, 0.9vw, 12px);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.osc-row code {
+    color: rgba(229, 229, 229, 0.74);
+}
+
+.osc-row output {
+    text-align: right;
+}
+
+.osc-row.updated {
+    color: #ffffff;
+    background: rgba(229, 229, 229, 0.13);
+}
+
+.osc-row.updated code {
+    color: #ffffff;
+}
+
+@media (max-width: 900px) {
+    body.monitor-mode .monitor-panel {
+        width: 21vw;
+    }
+
+    #monitor-left-panel {
+        left: 16px;
+        padding-right: 12px;
+    }
+
+    #monitor-right-panel {
+        right: 16px;
+        padding-left: 12px;
+    }
+
+    .strategy-section ol {
+        font-size: 11px;
+    }
+}
+
 canvas {
     display: block;
     position: absolute;

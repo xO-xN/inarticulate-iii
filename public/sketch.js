@@ -5,6 +5,8 @@ let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
 let userType = null; // Can be "1", "2", or "3"
 let selectionMade = false; // Flag to track if user has selected ID
+let hasConnectedOnce = false;
+let connectionStatusTimeout = null;
 
 let localPoint; // Local touch point
 let remotePoints = {};
@@ -53,15 +55,32 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   frameRate(60);
 
+  if (IS_OPERATOR) {
+    document.body.classList.add("monitor-mode");
+  }
+
   const hostname = window.location.hostname;
   socket = io.connect(`http://${hostname}:6868`);
 
   // --- Connection status UI ---
   socket.on("connect", () => {
-    updateConnStatus("connected", "Connected");
+    updateConnStatus(
+      "connected",
+      hasConnectedOnce ? "Reconnected" : "Connected",
+    );
+    hasConnectedOnce = true;
+
     if (IS_OPERATOR) {
       socket.emit("selectId", { userType: "0" });
       showQR();
+      return;
+    }
+
+    // Socket.IO assigns a new server-side socket after a mobile browser
+    // reconnects. Restore the previously accepted performer ID so the
+    // server continues to accept this client's point and line events.
+    if (selectionMade && userType) {
+      socket.emit("selectId", { userType });
     }
   });
   socket.on("disconnect", () => {
@@ -71,9 +90,7 @@ function setup() {
     socket.io.on("reconnect_attempt", () => {
       updateConnStatus("reconnecting", "Reconnecting...");
     });
-    socket.io.on("reconnect", () => {
-      updateConnStatus("connected", "Reconnected");
-    });
+
   }
   // --- End connection status UI ---
 
@@ -106,6 +123,12 @@ function setup() {
   socket.on("clientCount", (count) => {
     clientCount = count;
     document.getElementById("badge-clients-text").textContent = count;
+  });
+
+  socket.on("oscActivity", (data) => {
+    if (IS_OPERATOR) {
+      updateOscActivity(data);
+    }
   });
 
   // Listen for ID selection confirmation
@@ -146,14 +169,55 @@ function setup() {
 function updateConnStatus(state, text) {
   const el = document.getElementById("connection-status");
   const textEl = document.getElementById("status-text");
+
+  if (connectionStatusTimeout) {
+    clearTimeout(connectionStatusTimeout);
+    connectionStatusTimeout = null;
+  }
+
   el.className = "visible " + state;
   textEl.textContent = text;
-  // Auto-hide after 2s when connected
+
+  // Only a stable connection is transient. A previous success timer must
+  // never hide a later disconnected or reconnecting status.
   if (state === "connected") {
-    setTimeout(() => {
+    connectionStatusTimeout = setTimeout(() => {
       el.className = "hidden " + state;
+      connectionStatusTimeout = null;
     }, 2000);
   }
+}
+
+function updateOscActivity(data) {
+  if (!data || typeof data.address !== "string") {
+    return;
+  }
+
+  const row = document.querySelector(
+    `[data-osc-address="${data.address}"]`,
+  );
+
+  if (!row) {
+    return;
+  }
+
+  const values = Array.isArray(data.values) ? data.values : [];
+  const formatted = values.map((value) => {
+    const number = Number(value);
+
+    return Number.isFinite(number)
+      ? number.toFixed(3)
+      : String(value);
+  });
+
+  row.querySelector("output").textContent = formatted.join(", ");
+  row.classList.remove("updated");
+  void row.offsetWidth;
+  row.classList.add("updated");
+
+  setTimeout(() => {
+    row.classList.remove("updated");
+  }, 220);
 }
 
 function showQR() {

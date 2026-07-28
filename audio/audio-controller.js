@@ -251,6 +251,8 @@ class AudioController {
         oscFloat(xValue),
         `y${id}`,
         oscFloat(yValue),
+        `amp${id}`,
+        oscFloat(ampValue),
       );
       return;
     }
@@ -293,10 +295,6 @@ class AudioController {
     const id = playerNumber(player);
 
     await this.setPlayerGate(id, 0);
-
-    if (this.mode === "external") {
-      await this.osc.send(`/p${id}amp`, oscFloat(0));
-    }
   }
 
   async stop() {

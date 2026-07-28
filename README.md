@@ -90,7 +90,19 @@ PNDS_OSC_TARGET=127.0.0.1:57120 \
 node server.js --audio-mode external
 ```
 
-这里的 `57120` 是 sclang debug bridge；它不是 Internal 模式所使用的 scsynth 端口 `57110`。
+这里的 `57120` 是作品开发期的 sclang debug bridge；它不是 Internal 模式所使用的 scsynth 端口 `57110`。该 bridge 让创作者在**不启动 PNDS App**时，以 `external` 模式验证浏览器交互、Node OSC 映射与声音设计。它不是 App runtime：正式 Internal 模式只加载已编译的 `.scsyndef`，不会启动 `sclang`。
+
+本作品的既有 External OSC 协议为：
+
+```text
+/p1, /p2, /p3                 gate
+/p1xy, /p2xy, /p3xy           x, y, amp（amp 控制 PitchShift 变调量）
+/p1-p2, /p2-p1                couple12
+/p1-p3, /p3-p1                couple13
+/p2-p3, /p3-p2                couple23
+```
+
+这些地址属于 Inarticulate III，不是 PNDS 通用标准。
 
 ## 使用页面
 
@@ -101,7 +113,18 @@ node server.js --audio-mode external
 | Performer | `http://localhost:6868/` | 选择 Player 1、2 或 3 后触摸演奏 |
 | Operator / Monitor | `http://localhost:6869/` | 查看状态、显示供演奏者扫码加入的 QR code |
 
-演奏者主触点控制位置；第二触点保留为 External OSC 的 amplitude 兼容数据。两位演奏者距离进入连接阈值时，页面显示连线并发送 pairwise coupling 控制。
+演奏者主触点控制位置；第二触点映射为每个声部的 PitchShift 变调量。两位演奏者距离进入连接阈值时，页面显示连线并发送 pairwise coupling 控制。
+
+Monitor 页面为横向观察界面：中央保持完整的手机交互区域，左侧显示演奏策略说明，右侧列出本作品的 `/p*` 控制地址与最后一次发送的数据。右侧是**作品控制流**观察器：在 External 模式中这些是实际发出的 OSC 地址；在 Internal 模式中，Node 会将同一语义映射为标准 scsynth `/n_set`。
+
+monitor 中的 QR code 始终指向 performer 页面。Node 以 `PNDS_HOST_IP` 构造该 URL；PNDS App 未来会注入用户选择的 LAN IPv4。手动运行且存在多张网卡时，可显式指定正确地址：
+
+```sh
+PNDS_HOST_IP=192.168.1.42 \
+node server.js --audio-mode internal
+```
+
+未设置时，standalone 调试回退到第一个非 loopback IPv4。
 
 ## 运行时健康接口
 

@@ -4,9 +4,9 @@
         |
         out = 0,
 
-        baseFreq1 = 500.0,
-        baseFreq2 = 1000.0,
-        baseFreq3 = 1500.0,
+        baseFreq1 = 100.0,
+        baseFreq2 = 200.0,
+        baseFreq3 = 300.0,
 
         gate1 = 0,
         gate2 = 0,
@@ -29,32 +29,58 @@
         couplingLag = 0.12,
         dopplerLag = 0.18,
         gateLag = 0.03,
+        pitchShiftLag = 0.12,
 
         motionReferenceSpeed = 8.0,
         motionDeadzone = 0.04,
 
-        dopplerRatio = 0.0416666666667,
         fmMax = 300.0,
-        master = 0.25
+        master = 0.25,
+
+        // amp1 / amp2 / amp3 保留现有 OSC 协议命名，
+        // 但这里只控制各声部的 PitchShift 变调量，
+        // 不控制任何增益。
+        amp1 = 0.0,
+        amp2 = 0.0,
+        amp3 = 0.0
         |
 
         var base1;
         var base2;
         var base3;
 
+        var fifthRatio;
+        var ninthRatio;
+
         var positionLagTime;
         var couplingLagTime;
         var dopplerLagTime;
         var gateLagTime;
+        var pitchShiftLagTime;
 
         var referenceSpeed;
         var deadzone;
-        var ratio;
         var fmMaximum;
 
         var gate1Smooth;
         var gate2Smooth;
         var gate3Smooth;
+
+        var trigger1;
+        var trigger2;
+        var trigger3;
+
+        var carrier1;
+        var carrier2;
+        var carrier3;
+
+        var amp1Smooth;
+        var amp2Smooth;
+        var amp3Smooth;
+
+        var pitchRatio1;
+        var pitchRatio2;
+        var pitchRatio3;
 
         var x1Smooth;
         var y1Smooth;
@@ -121,11 +147,23 @@
         var oscillator2;
         var oscillator3;
 
+        var shifted1;
+        var shifted2;
+        var shifted3;
+
+        var voice1;
+        var voice2;
+        var voice3;
+
         var signal1;
         var signal2;
         var signal3;
 
         var masterSmooth;
+
+        var reverbInput;
+        var reverbSignal;
+
         var stereo;
 
 
@@ -137,6 +175,9 @@
         base2 = baseFreq2.clip(20, 20000);
         base3 = baseFreq3.clip(20, 20000);
 
+        fifthRatio = 1.4983070779;
+        ninthRatio = 2.2449240966;
+
 
         // ----------------------------------------------------
         // 参数限制
@@ -146,10 +187,10 @@
         couplingLagTime = couplingLag.clip(0.005, 2.0);
         dopplerLagTime = dopplerLag.clip(0.005, 2.0);
         gateLagTime = gateLag.clip(0.005, 2.0);
+        pitchShiftLagTime = pitchShiftLag.clip(0.005, 2.0);
 
         referenceSpeed = motionReferenceSpeed.clip(0.01, 100.0);
         deadzone = motionDeadzone.clip(0.0, 1.0);
-        ratio = dopplerRatio.clip(0.0, 0.25);
         fmMaximum = fmMax.clip(0.0, 2000.0);
 
 
@@ -170,6 +211,95 @@
         gate3Smooth = Lag.kr(
             gate3.clip(0, 1),
             gateLagTime
+        );
+
+
+        // ----------------------------------------------------
+        // 每次触发时随机选择基础频率上方五度或大九度
+        //
+        // HPZ1 只在 Gate 从 0 变为非零时产生正向触发。
+        // TChoose 会保持选择结果，直到下一次触发。
+        // ----------------------------------------------------
+
+        trigger1 = HPZ1.kr(
+            gate1.clip(0, 1)
+        ).max(0);
+
+        trigger2 = HPZ1.kr(
+            gate2.clip(0, 1)
+        ).max(0);
+
+        trigger3 = HPZ1.kr(
+            gate3.clip(0, 1)
+        ).max(0);
+
+        carrier1 = TChoose.kr(
+            trigger1,
+            [
+                base1 * fifthRatio,
+                base1 * ninthRatio
+            ]
+        );
+
+        carrier2 = TChoose.kr(
+            trigger2,
+            [
+                base2 * fifthRatio,
+                base2 * ninthRatio
+            ]
+        );
+
+        carrier3 = TChoose.kr(
+            trigger3,
+            [
+                base3 * fifthRatio,
+                base3 * ninthRatio
+            ]
+        );
+
+
+        // ----------------------------------------------------
+        // amp → PitchShift 变调量
+        //
+        // amp 是连续的 PitchShift 控制量，不进行音阶或整数半音量化。
+        // 0.0 → ratio 1.0；1.0 → ratio 2^(16/12) ≈ 2.5198420998。
+        // 中间值保持连续的频率比例。
+        // ----------------------------------------------------
+
+        amp1Smooth = Lag.kr(
+            amp1.clip(0, 1),
+            pitchShiftLagTime
+        );
+
+        amp2Smooth = Lag.kr(
+            amp2.clip(0, 1),
+            pitchShiftLagTime
+        );
+
+        amp3Smooth = Lag.kr(
+            amp3.clip(0, 1),
+            pitchShiftLagTime
+        );
+
+        pitchRatio1 = amp1Smooth.linexp(
+            0.0,
+            1.0,
+            1.0,
+            2.5198420998
+        );
+
+        pitchRatio2 = amp2Smooth.linexp(
+            0.0,
+            1.0,
+            1.0,
+            2.5198420998
+        );
+
+        pitchRatio3 = amp3Smooth.linexp(
+            0.0,
+            1.0,
+            1.0,
+            2.5198420998
         );
 
 
@@ -399,17 +529,16 @@
         //
         // 关键公式：
         //
-        // dopplerMax1 = base1 * ratio
-        // dopplerMax2 = base2 * ratio
-        // dopplerMax3 = base3 * ratio
+        // dopplerMax1 = base1 * 0.2
+        // dopplerMax2 = base2 * 0.2
+        // dopplerMax3 = base3 * 0.2
         //
-        // 因此基础频率改变时，Doppler 最大偏移
-        // 会自动随之改变。
+        // 这里的 0.2 是相对于各自基础频率的固定比例。
         // ----------------------------------------------------
 
-        dopplerMax1 = base1 * ratio;
-        dopplerMax2 = base2 * ratio;
-        dopplerMax3 = base3 * ratio;
+        dopplerMax1 = base1 * 0.2;
+        dopplerMax2 = base2 * 0.2;
+        dopplerMax3 = base3 * 0.2;
 
         dopplerShift1 = speed1 * dopplerMax1;
         dopplerShift2 = speed2 * dopplerMax2;
@@ -478,25 +607,25 @@
 
 
         // ----------------------------------------------------
-        // 固定基础频率
+        // 触发后选定的基础频率
         // + Doppler
         // + 距离驱动的相互 FM
         // ----------------------------------------------------
 
         frequency1 = (
-            base1
+            carrier1
             + dopplerShift1
             + modulation1
         ).clip(20, 20000);
 
         frequency2 = (
-            base2
+            carrier2
             + dopplerShift2
             + modulation2
         ).clip(20, 20000);
 
         frequency3 = (
-            base3
+            carrier3
             + dopplerShift3
             + modulation3
         ).clip(20, 20000);
@@ -506,21 +635,56 @@
         // 三个正弦波振荡器
         // ----------------------------------------------------
 
-        oscillator1 = SinOsc.ar(frequency1);
-        oscillator2 = SinOsc.ar(frequency2);
-        oscillator3 = SinOsc.ar(frequency3);
+        oscillator1 = SinOsc.ar(frequency1, mul:0.8, add: 0.2).tanh;
+		oscillator2 = SinOsc.ar(frequency2, mul:0.8, add: 0.2).tanh;
+        oscillator3 = SinOsc.ar(frequency3, mul:0.8, add: 0.2).tanh;
+
+
+        // ----------------------------------------------------
+        // 每个声部的 PitchShift
+        //
+        // PitchShift 版本固定为 -3 dB；amp 只控制变调比例。
+        // ----------------------------------------------------
+
+        shifted1 = PitchShift.ar(
+            oscillator1,
+            0.2,
+            pitchRatio1,
+            0.0,
+            0.01
+        );
+
+        shifted2 = PitchShift.ar(
+            oscillator2,
+            0.2,
+            pitchRatio2,
+            0.0,
+            0.01
+        );
+
+        shifted3 = PitchShift.ar(
+            oscillator3,
+            0.2,
+            pitchRatio3,
+            0.0,
+            0.01
+        );
+
+        voice1 = oscillator1 + (shifted1 * 0.707946);
+        voice2 = oscillator2 + (shifted2 * 0.707946);
+        voice3 = oscillator3 + (shifted3 * 0.707946);
 
 
         // ----------------------------------------------------
         // 写回反馈网络
         //
-        // Gate 关闭时，该声部不再作为 FM 调制源。
+        // 原始声音与 PitchShift 版本的复合信号参与 FM。
         // ----------------------------------------------------
 
         LocalOut.ar([
-            oscillator1 * gate1Smooth,
-            oscillator2 * gate2Smooth,
-            oscillator3 * gate3Smooth
+            voice1 * gate1Smooth,
+            voice2 * gate2Smooth,
+            voice3 * gate3Smooth
         ]);
 
 
@@ -528,15 +692,15 @@
         // 三个声部的实际输出
         // ----------------------------------------------------
 
-        signal1 = oscillator1
+        signal1 = voice1
             * gate1Smooth
             * level1;
 
-        signal2 = oscillator2
+        signal2 = voice2
             * gate2Smooth
             * level2;
 
-        signal3 = oscillator3
+        signal3 = voice3
             * gate3Smooth
             * level3;
 
@@ -552,13 +716,35 @@
 
 
         // ----------------------------------------------------
-        // 立体声输出
+        // 三个声部进入混响总线
+        //
+        // 混响位于 master 之前，因此 master 会同时控制
+        // 干声与混响返回信号。
         // ----------------------------------------------------
 
-        stereo =
+        reverbInput =
             Pan2.ar(signal1, pan1)
             + Pan2.ar(signal2, pan2)
             + Pan2.ar(signal3, pan3);
+
+
+        // ----------------------------------------------------
+        // 内置混响
+        //
+        // FreeVerb2 是 SuperCollider 自带的立体声混响。
+        // 较大的 room 与较高的 damp 让尾音更长、高频更暗，
+        // 形成偏浑浊的空间感。
+        // ----------------------------------------------------
+
+        reverbSignal = FreeVerb2.ar(
+            reverbInput[0],
+            reverbInput[1],
+            0.5,
+            0.88,
+            0.82
+        );
+
+        stereo = reverbSignal;
 
 
         // ----------------------------------------------------

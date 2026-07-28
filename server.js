@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
 const os = require("node:os");
+const net = require("node:net");
 const QRCode = require("qrcode");
 const qrcode = require("qrcode-terminal");
 const { AudioController } = require("./audio/audio-controller");
@@ -42,6 +43,10 @@ const oscTarget = resolveOscTarget(
 const serverConfig = resolveServerConfig(
   manifest,
 );
+
+// The PNDS App supplies the LAN address explicitly after the user selects
+// it. Standalone development falls back to the first non-loopback IPv4.
+const hostLanIp = resolveHostLanIp();
 
 
 // ============================================================
@@ -611,25 +616,40 @@ function printRuntimeInfo() {
   }
 }
 
-function getHostForUrl(request) {
-  const hostname =
-    request.hostname || "127.0.0.1";
+function findLanIpv4Addresses() {
+  const addresses = [];
+  const interfaces = os.networkInterfaces();
 
-  if (hostname.includes(":")) {
-    return `[${hostname}]`;
+  for (const networkInterface of Object.values(interfaces)) {
+    for (const address of networkInterface || []) {
+      if (address.family === "IPv4" && !address.internal) {
+        addresses.push(address.address);
+      }
+    }
   }
 
-  return hostname;
+  return addresses;
 }
 
-function getPerformerUrl(request) {
-  const protocol =
-    request.protocol || "http";
+function resolveHostLanIp() {
+  const configured = process.env.PNDS_HOST_IP?.trim();
 
-  const host = getHostForUrl(request);
+  if (configured) {
+    if (!net.isIPv4(configured)) {
+      throw new Error(
+        "PNDS_HOST_IP must be an IPv4 address without a port.",
+      );
+    }
 
+    return configured;
+  }
+
+  return findLanIpv4Addresses()[0] || "127.0.0.1";
+}
+
+function getPerformerUrl() {
   return (
-    `${protocol}://${host}:` +
+    `http://${hostLanIp}:` +
     `${serverConfig.performerPort}/`
   );
 }
@@ -640,49 +660,22 @@ function getPerformerUrl(request) {
 // ============================================================
 //
 // 无论从 performer 端口还是 monitor 端口访问 /qr，
-// 始终生成 performer URL。
+// 都使用启动时确定的 performer LAN URL，而非浏览器请求的 Host。
 // ============================================================
 
 function printServerInfo() {
-  const nets = os.networkInterfaces();
-  let printedAddress = false;
+  const url = getPerformerUrl();
 
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (
-        net.family === "IPv4" &&
-        !net.internal
-      ) {
-        const url =
-          "http://" +
-          net.address +
-          ":" +
-          serverConfig.performerPort +
-          "/";
+  console.log("Performer address: " + url);
 
-        console.log(
-          "Performer address: " + url,
-        );
-
-        qrcode.generate(
-          url,
-          { small: true },
-        );
-
-        printedAddress = true;
-      }
-    }
-  }
-
-  if (!printedAddress) {
-    console.log(
-      `Performer address: http://127.0.0.1:${serverConfig.performerPort}/`,
-    );
-  }
+  qrcode.generate(
+    url,
+    { small: true },
+  );
 }
 
 const qrHandler = (request, response) => {
-  const url = getPerformerUrl(request);
+  const url = getPerformerUrl();
 
   QRCode.toString(
     url,
@@ -738,6 +731,22 @@ function broadcastClientCount() {
   }
 
   io.emit("clientCount", count);
+}
+
+// The monitor displays the score's existing OSC-shaped controls. These are
+// semantic control messages: Internal mode maps them to /n_set, while
+// External mode sends the same addresses to the project's debug bridge.
+function broadcastOscActivity(address, values) {
+  const payload = {
+    address,
+    values,
+  };
+
+  for (const sock of io.sockets.sockets.values()) {
+    if (sock.userType === "0") {
+      sock.emit("oscActivity", payload);
+    }
+  }
 }
 
 
@@ -895,6 +904,8 @@ io.on("connection", (socket) => {
       }
 
       if (socket.pSendCount < 3) {
+        broadcastOscActivity(`/p${playerId}`, [1]);
+
         dispatchAudio(
           `player ${playerId} gate on`,
           () =>
@@ -911,6 +922,8 @@ io.on("connection", (socket) => {
       socket.pSendCount = 0;
 
       const sendRelease = () => {
+        broadcastOscActivity(`/p${playerId}`, [0]);
+
         dispatchAudio(
           `player ${playerId} release`,
           () =>
@@ -940,9 +953,9 @@ io.on("connection", (socket) => {
     //
     // data.relX → x
     // data.relY → y
-    // data.amp  → External 模式的兼容参数
+    // data.amp  → 每个声部的 PitchShift 变调量
     //
-    // Internal 模式中，AudioController 当前只使用 x/y。
+    // Internal 与 External 都保留这套既有作品控制语义。
     // --------------------------------------------------------
 
     if (socket.lastXY === undefined) {
@@ -994,6 +1007,11 @@ io.on("connection", (socket) => {
           relY,
           amp,
         };
+
+        broadcastOscActivity(
+          `/p${playerId}xy`,
+          [relX, relY, amp],
+        );
 
         dispatchAudio(
           `player ${playerId} position`,
@@ -1052,6 +1070,8 @@ io.on("connection", (socket) => {
       return;
     }
 
+    broadcastOscActivity(`/${data.id}`, [stroke]);
+
     dispatchAudio(
       `line ${data.id}`,
       () =>
@@ -1084,6 +1104,8 @@ io.on("connection", (socket) => {
       const playerId = Number(
         socket.userType,
       );
+
+      broadcastOscActivity(`/p${playerId}`, [0]);
 
       dispatchAudio(
         `player ${playerId} disconnect`,

@@ -25,6 +25,54 @@
     </head>
 
     <body>
+        <aside id="monitor-left-panel" class="monitor-panel" aria-label="演奏策略">
+            <p class="panel-kicker">INARTICULATE III</p>
+            <h1>失语 III<br />数字乐谱规则</h1>
+
+            <section class="strategy-section">
+                <h2>演奏规则</h2>
+                <ol>
+                    <li>每人有两条音符曲线与一个休止符来演奏。</li>
+                    <li>箭头方向为音符曲线的方向；数字的一端为起点，数字表示“演奏次序（演奏次数）”。</li>
+                    <li>每个乐手需要聆听其他乐手的声音，保证彼此的音符曲线起始点同步。</li>
+                    <li>当乐手的触摸点靠近时，放慢演奏。</li>
+                </ol>
+            </section>
+
+            <section class="strategy-section strategy-note">
+                <h2>对演奏者的提示</h2>
+                <ol>
+                    <li>音乐由慢速逐渐加速至无法同步彼此的速度。</li>
+                    <li>形态的重要性大于位置。</li>
+                    <li>双指演奏时保证主要触点在音符曲线上即可；音乐必须推进时再加入双指演奏。</li>
+                    <li>开始时演奏者 1 先演奏；演奏者 2 在第二个音符时开始；演奏者 3 正常演奏（三个音符的休止符）。</li>
+                </ol>
+            </section>
+        </aside>
+
+        <aside id="monitor-right-panel" class="monitor-panel" aria-label="实时 OSC 控制信息">
+            <div class="osc-panel-heading">
+                <p class="panel-kicker">LIVE CONTROL STREAM</p>
+                <h2>OSC 输出</h2>
+                <p class="osc-panel-note">显示作品控制地址最后一次发送的数据。</p>
+            </div>
+
+            <div id="osc-rows" aria-live="polite">
+                <div class="osc-row" data-osc-address="/p1"><code>/p1</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p2"><code>/p2</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p3"><code>/p3</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p1xy"><code>/p1xy</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p2xy"><code>/p2xy</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p3xy"><code>/p3xy</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p1-p2"><code>/p1-p2</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p2-p1"><code>/p2-p1</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p1-p3"><code>/p1-p3</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p3-p1"><code>/p3-p1</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p2-p3"><code>/p2-p3</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p3-p2"><code>/p3-p2</code><output>—</output></div>
+            </div>
+        </aside>
+
         <div id="qr-overlay">
             <div id="qr-wrapper">
                 <img id="qr-image" src="/qr" alt="Scan to join" />

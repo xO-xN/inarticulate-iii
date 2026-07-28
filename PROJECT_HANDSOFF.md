@@ -112,6 +112,7 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
 - 解析 manifest、`--audio-mode` 与 `PNDS_OSC_TARGET`；
 - 服务 performer 与 monitor 页面；
 - Socket.IO player ID、点位和连线事件；
+- 向 monitor 广播作品控制流活动（`oscActivity`），供右侧 `/p*` 地址观察器显示最后一次数据；
 - 创建并调用 `AudioController`；
 - 提供 `/qr` 与 `GET /__pnds/health`；
 - 处理 `SIGINT` / `SIGTERM` 并释放本项目资源。
