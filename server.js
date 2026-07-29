@@ -6,6 +6,9 @@ const net = require("node:net");
 const QRCode = require("qrcode");
 const qrcode = require("qrcode-terminal");
 const { AudioController } = require("./audio/audio-controller");
+const {
+  decidePlayerClaim,
+} = require("./player-identity");
 
 const PROJECT_ROOT = __dirname;
 const MANIFEST_PATH = path.join(PROJECT_ROOT, "manifest.json");
@@ -708,12 +711,42 @@ obApp.get("/qr", qrHandler);
 // ============================================================
 
 let nextTempId = 1;
-const assignedIds = new Set();
+const playerAssignments = new Map();
 
 function isPlayerId(value) {
   return VALID_PLAYER_IDS.has(
     String(value),
   );
+}
+
+function removePlayerAssignment(socket) {
+  if (!isPlayerId(socket.userType)) {
+    return;
+  }
+
+  const assignment = playerAssignments.get(socket.userType);
+
+  if (assignment?.socketId === socket.id) {
+    playerAssignments.delete(socket.userType);
+  }
+}
+
+function transferPlayerAssignment(previousSocketId) {
+  const previousSocket = io.sockets.sockets.get(previousSocketId);
+
+  if (!previousSocket) {
+    return;
+  }
+
+  if (previousSocket._releaseRetry) {
+    clearTimeout(previousSocket._releaseRetry);
+    previousSocket._releaseRetry = null;
+  }
+
+  // The replacement socket now owns this player ID. Clearing the old socket
+  // prevents its late disconnect or queued events from releasing the new
+  // performer's sound or clearing the monitor point.
+  previousSocket.userType = null;
 }
 
 function broadcastClientCount() {
@@ -776,6 +809,7 @@ io.on("connection", (socket) => {
       data && data.userType !== undefined
         ? String(data.userType)
         : null;
+    const claimToken = data?.claimToken;
 
     if (
       userType !== "0" &&
@@ -790,32 +824,41 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (
-      userType !== "0" &&
-      assignedIds.has(userType)
-    ) {
-      socket.emit("idConfirmation", {
-        status: "rejected",
-        userType,
-        message: "ID already taken",
-      });
-
-      return;
-    }
-
-    if (
-      socket.userType &&
-      socket.userType !== "0"
-    ) {
-      assignedIds.delete(
-        socket.userType,
+    if (userType !== "0") {
+      const decision = decidePlayerClaim(
+        playerAssignments,
+        {
+          playerId: userType,
+          socketId: socket.id,
+          claimToken,
+        },
       );
+
+      if (decision.status === "rejected") {
+        socket.emit("idConfirmation", {
+          status: "rejected",
+          userType,
+          message: decision.message,
+        });
+
+        return;
+      }
+
+      if (decision.status === "takeover") {
+        transferPlayerAssignment(
+          decision.previousSocketId,
+        );
+      }
     }
 
+    removePlayerAssignment(socket);
     socket.userType = userType;
 
     if (userType !== "0") {
-      assignedIds.add(userType);
+      playerAssignments.set(userType, {
+        socketId: socket.id,
+        claimToken,
+      });
       socket.clientId = parseInt(
         userType,
         10,
@@ -1120,9 +1163,7 @@ io.on("connection", (socket) => {
         clientId: playerId,
       });
 
-      assignedIds.delete(
-        socket.userType,
-      );
+      removePlayerAssignment(socket);
     }
 
     if (socket._releaseRetry) {

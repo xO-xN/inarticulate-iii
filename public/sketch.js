@@ -1,10 +1,14 @@
 const IS_OPERATOR = location.port === "6869";
 
+const PLAYER_ID_STORAGE_KEY = "inarticulate-iii.player-id";
+const PLAYER_CLAIM_STORAGE_KEY = "inarticulate-iii.player-claim";
+
 let socket;
 let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
-let userType = null; // Can be "1", "2", or "3"
-let selectionMade = false; // Flag to track if user has selected ID
+let userType = IS_OPERATOR ? "0" : readStoredPlayerId();
+let selectionMade = false; // Confirmed by the current server connection
+let performerClaimToken = IS_OPERATOR ? null : getClaimToken();
 let hasConnectedOnce = false;
 let connectionStatusTimeout = null;
 
@@ -16,6 +20,70 @@ let pointFrameCount = 0; // throttle: emit point every 2 frames
 let maxLineLength = 300;
 const colors = ["#000000", "#14213d", "#515E63", "#e5e5e5", "#ffffff"];
 const { pow } = Math;
+
+function readStoredPlayerId() {
+  try {
+    const playerId = localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+
+    return ["1", "2", "3"].includes(playerId)
+      ? playerId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getClaimToken() {
+  try {
+    const stored = localStorage.getItem(PLAYER_CLAIM_STORAGE_KEY);
+
+    if (stored) {
+      return stored;
+    }
+
+    const token = crypto.randomUUID
+      ? crypto.randomUUID()
+      : createClaimToken();
+
+    localStorage.setItem(PLAYER_CLAIM_STORAGE_KEY, token);
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+function createClaimToken() {
+  const values = new Uint32Array(4);
+  crypto.getRandomValues(values);
+
+  return Array.from(
+    values,
+    (value) => value.toString(16).padStart(8, "0"),
+  ).join("");
+}
+
+function persistPlayerId(playerId) {
+  try {
+    localStorage.setItem(PLAYER_ID_STORAGE_KEY, playerId);
+  } catch {
+    // The current connection can still work when browser storage is blocked.
+  }
+}
+
+function clearStoredPlayerId() {
+  try {
+    localStorage.removeItem(PLAYER_ID_STORAGE_KEY);
+  } catch {
+    // The current connection can still continue after a rejected claim.
+  }
+}
+
+function selectPlayer(playerId) {
+  socket.emit("selectId", {
+    userType: playerId,
+    claimToken: performerClaimToken,
+  });
+}
 
 // Use native Safari action sheet (prompt/alert)
 function promptForUserType() {
@@ -32,8 +100,7 @@ function promptForUserType() {
     const validSelection = ["1", "2", "3"].includes(selection);
 
     if (validSelection) {
-      // Send selection to server
-      socket.emit("selectId", { userType: selection });
+      selectPlayer(selection);
     } else {
       // Invalid selection, prompt again
       alert("Please enter a valid option: 1, 2 or 3");
@@ -79,8 +146,8 @@ function setup() {
     // Socket.IO assigns a new server-side socket after a mobile browser
     // reconnects. Restore the previously accepted performer ID so the
     // server continues to accept this client's point and line events.
-    if (selectionMade && userType) {
-      socket.emit("selectId", { userType });
+    if (userType) {
+      selectPlayer(userType);
     }
   });
   socket.on("disconnect", () => {
@@ -113,8 +180,9 @@ function setup() {
 
   socket.on("clientId", (clientId) => {
     ID = clientId;
-    // When we get client ID, prompt for user type
-    if (!selectionMade && !IS_OPERATOR) {
+    // A stored player ID is claimed immediately on connect. Only prompt
+    // when this browser has neither a confirmed nor a stored selection.
+    if (!selectionMade && !IS_OPERATOR && !userType) {
       promptForUserType();
     }
   });
@@ -137,6 +205,10 @@ function setup() {
       userType = data.userType;
       selectionMade = true;
 
+      if (!IS_OPERATOR) {
+        persistPlayerId(userType);
+      }
+
       // Show badge for players only (operator (0) doesn't need it)
       if (userType !== "0") {
         document.getElementById("badge-user-text").textContent = userType;
@@ -148,6 +220,7 @@ function setup() {
       alert(`ID ${data.userType} is already taken. Please select another.`);
       selectionMade = false;
       userType = null;
+      clearStoredPlayerId();
       document.getElementById("badge-user-text").textContent = "—";
       document.getElementById("badge-user").classList.remove("visible");
       document.getElementById("badge-clients").classList.remove("visible");

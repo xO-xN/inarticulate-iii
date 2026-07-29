@@ -112,6 +112,7 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
 - 解析 manifest、`--audio-mode` 与 `PNDS_OSC_TARGET`；
 - 服务 performer 与 monitor 页面；
 - Socket.IO player ID、点位和连线事件；
+- performer 身份恢复：浏览器持久化 player ID 与 claim token；同一 token 的新 socket 接管旧 socket，不同 token 抢同一 ID 会被拒绝；
 - 向 monitor 广播作品控制流活动（`oscActivity`），供右侧 `/p*` 地址观察器显示最后一次数据；
 - 创建并调用 `AudioController`；
 - 提供 `/qr` 与 `GET /__pnds/health`；
@@ -336,12 +337,7 @@ node server.js --audio-mode external
    - `public/sketch.js` 以 `location.port === "6869"` 判断 monitor；
    - 因此第一版 App 应先使用 manifest 中固定端口。若 App 需要动态端口或 HTTPS/WebView 兼容，应在 project 中增加运行时前端配置，例如 `/__pnds/config.js`。
 
-2. **performer 重连后不会重新声明角色**
-   - 前端保留 `selectionMade`，但新的 Socket.IO connection 尚未自动再次 `selectId`；
-   - 这会使断线重连后的 performer UI 看似已选择角色、但服务端不接收其 event；
-   - 在做通用 App/WebView 体验时应修复。
-
-3. **`node-osc` 是未使用的直接依赖**
+2. **`node-osc` 是未使用的直接依赖**
    - 当前 source 使用 `osc-min`；
    - 不要为了清理而无验证地改 lockfile。可在单独依赖维护任务中移除。
 
