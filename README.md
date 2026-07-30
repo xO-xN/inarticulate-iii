@@ -27,7 +27,14 @@ You do **not** need to install Node.js or SuperCollider. PNDS App ships with bot
 > [!IMPORTANT]
 > Download `Inarticulate-III-<version>.zip` from the [releases page](https://github.com/xO-xN/inarticulate-iii/releases/latest).
 >
-> **Do not use the green "Code → Download ZIP" button.** That gives you the source code without its installed dependencies, and PNDS App will refuse to start the project with `Project dependencies are missing`.
+> Do **not** download “Source code (zip)” or “Source code (tar.gz)” — GitHub attaches
+> those to every release automatically — and do not use the green “Code → Download ZIP”
+> button. They contain the source only, without the installed Node.js dependencies, and
+> PNDS App will refuse to start the project with `Project dependencies are missing`.
+>
+> The correct archive unzips into a folder named `Inarticulate III` that contains a
+> `node_modules` directory. If your folder is named something like
+> `xO-xN-inarticulate-iii-8ef57e7`, you downloaded the source archive.
 
 Unzip the archive anywhere you like. You get a single folder named `Inarticulate III` that is ready to run offline.
 

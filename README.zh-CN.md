@@ -27,7 +27,12 @@
 > [!IMPORTANT]
 > 请从 [releases 页面](https://github.com/xO-xN/inarticulate-iii/releases/latest)下载 `Inarticulate-III-<版本号>.zip`。
 >
-> **不要使用绿色的「Code → Download ZIP」按钮。** 那样下载到的是源码，不含已安装的依赖，PNDS App 会拒绝启动并提示 `Project dependencies are missing`。
+> **不要**下载「Source code (zip)」或「Source code (tar.gz)」——GitHub 会自动给每个 release
+> 挂上这两个文件——也不要使用仓库页面上绿色的「Code → Download ZIP」按钮。它们只包含源码，
+> 不含已安装的依赖，PNDS App 会拒绝启动并提示 `Project dependencies are missing`。
+>
+> 正确的压缩包解压后是一个名为 `Inarticulate III` 的文件夹，其中含有 `node_modules` 目录。
+> 如果你解压出的文件夹叫 `xO-xN-inarticulate-iii-8ef57e7` 之类的名字，说明下载的是源码包。
 
 解压到任意位置，你会得到一个名为 `Inarticulate III` 的文件夹，可离线直接运行。
 
