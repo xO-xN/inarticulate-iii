@@ -1126,9 +1126,56 @@ io.on("connection", (socket) => {
   });
 
 
-  // ----------------------------------------------------------
-  // Disconnect
-  // ----------------------------------------------------------
+  	// ----------------------------------------------------------
+// Reset all performer roles (operator command)
+// ----------------------------------------------------------
+
+socket.on("resetRoles", () => {
+	if (socket.userType !== "0") {
+		return;
+	}
+
+	console.log(
+		"[operator] Resetting all performer roles",
+	);
+
+	// Clear all assignments and notify every performer to re-select.
+	const performerSockets = [];
+	for (const [, assignment] of playerAssignments) {
+		const sock = io.sockets.sockets.get(
+			assignment.socketId,
+		);
+		if (sock && sock.userType && sock.userType !== "0") {
+			performerSockets.push(sock);
+		}
+	}
+
+	playerAssignments.clear();
+
+	for (const sock of performerSockets) {
+		if (sock._releaseRetry) {
+			clearTimeout(sock._releaseRetry);
+			sock._releaseRetry = null;
+		}
+		dispatchAudio(
+			`player ${sock.userType} reset`,
+			() => audioController.releasePlayer(
+				Number(sock.userType),
+			),
+		);
+		sock.userType = null;
+		sock.clientId = nextTempId++;
+		sock.emit("clientId", sock.clientId);
+		sock.emit("rolesReset");
+	}
+
+	broadcastClientCount();
+});
+
+
+// ----------------------------------------------------------
+// Disconnect
+// ----------------------------------------------------------
 
   socket.on("disconnect", () => {
     if (isShuttingDown) {

@@ -199,34 +199,47 @@ function setup() {
     }
   });
 
-  // Listen for ID selection confirmation
-  socket.on("idConfirmation", (data) => {
-    if (data.status === "accepted") {
-      userType = data.userType;
-      selectionMade = true;
+  	// Listen for ID selection confirmation
+  	socket.on("idConfirmation", (data) => {
+  		if (data.status === "accepted") {
+  			userType = data.userType;
+  			selectionMade = true;
 
-      if (!IS_OPERATOR) {
-        persistPlayerId(userType);
-      }
+  			if (!IS_OPERATOR) {
+  				persistPlayerId(userType);
+  			}
 
-      // Show badge for players only (operator (0) doesn't need it)
-      if (userType !== "0") {
-        document.getElementById("badge-user-text").textContent = userType;
-        document.getElementById("badge-user").classList.add("visible");
-      }
-      document.getElementById("badge-clients").classList.add("visible");
-    } else {
-      // ID already taken, user needs to select again
-      alert(`ID ${data.userType} is already taken. Please select another.`);
-      selectionMade = false;
-      userType = null;
-      clearStoredPlayerId();
-      document.getElementById("badge-user-text").textContent = "—";
-      document.getElementById("badge-user").classList.remove("visible");
-      document.getElementById("badge-clients").classList.remove("visible");
-      if (!IS_OPERATOR) promptForUserType();
-    }
-  });
+  			// Show badge for players only (operator (0) doesn't need it)
+  			if (userType !== "0") {
+  				document.getElementById("badge-user-text").textContent = userType;
+  				document.getElementById("badge-user").classList.add("visible");
+  			}
+  			document.getElementById("badge-clients").classList.add("visible");
+  		} else {
+  			// ID already taken, user needs to select again
+  			alert(`ID ${data.userType} is already taken. Please select another.`);
+  			selectionMade = false;
+  			userType = null;
+  			clearStoredPlayerId();
+  			document.getElementById("badge-user-text").textContent = "—";
+  			document.getElementById("badge-user").classList.remove("visible");
+  			document.getElementById("badge-clients").classList.remove("visible");
+  			if (!IS_OPERATOR) promptForUserType();
+  		}
+  	});
+
+  	// Operator-triggered role reset: clear local identity and re-prompt.
+  	socket.on("rolesReset", () => {
+  		if (!IS_OPERATOR) {
+  			selectionMade = false;
+  			userType = null;
+  			clearStoredPlayerId();
+  			document.getElementById("badge-user-text").textContent = "—";
+  			document.getElementById("badge-user").classList.remove("visible");
+  			document.getElementById("badge-clients").classList.remove("visible");
+  			promptForUserType();
+  		}
+  	});
 
   if (IS_OPERATOR) {
     document.getElementById("qr-toggle").addEventListener("click", () => {
@@ -235,6 +248,16 @@ function setup() {
     });
     document.getElementById("qr-wrapper").addEventListener("click", () => {
       if (qrVisible) hideQR();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (qrVisible) hideQR();
+        else showQR();
+      }
+    });
+    document.getElementById("reset-roles").addEventListener("click", () => {
+      socket.emit("resetRoles");
     });
   }
 }
