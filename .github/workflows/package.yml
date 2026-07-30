@@ -1,0 +1,93 @@
+name: Package release
+
+# PNDS App never runs an install step during a performance, so a released
+# score project has to ship its production dependencies already installed.
+# This workflow builds that runnable bundle and attaches it to a draft release.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to package (e.g. v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Node runtime bundled in PNDS App.
+          node-version: '22.14.0'
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Assemble runnable project bundle
+        run: |
+          mkdir -p "dist/Inarticulate III"
+          # Excludes are anchored with a leading slash on purpose: an unanchored
+          # 'dist' or 'test' would also strip node_modules/<pkg>/dist, which
+          # silently produces a bundle that cannot start.
+          rsync -a \
+            --exclude='/.git' \
+            --exclude='/.github' \
+            --exclude='/.gitignore' \
+            --exclude='/.lh' \
+            --exclude='/dist' \
+            --exclude='/test' \
+            --exclude='.DS_Store' \
+            --exclude='*.log' \
+            ./ "dist/Inarticulate III/"
+          cd dist && zip -q -r -X "../Inarticulate-III-${VERSION}.zip" "Inarticulate III"
+          cd .. && ls -lh "Inarticulate-III-${VERSION}.zip"
+
+      - name: Smoke-test the bundle
+        run: |
+          cd "dist/Inarticulate III"
+          node server.js --audio-mode none &
+          SERVER_PID=$!
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 1
+            if curl -sf http://127.0.0.1:6868/__pnds/health -o /tmp/health.json; then
+              break
+            fi
+          done
+          cat /tmp/health.json
+          grep -q '"status":"ready"' /tmp/health.json
+          kill "$SERVER_PID"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Inarticulate III ${{ env.VERSION }}
+          draft: true
+          files: Inarticulate-III-*.zip
+          body: |
+            ## Inarticulate III ${{ env.VERSION }}
+
+            A networked digital score for three performers, running on PNDS App.
+
+            ### How to play
+
+            1. Install **PNDS App** (macOS, Apple Silicon): https://github.com/xO-xN/PNDS-App/releases/latest
+            2. Download `Inarticulate-III-${{ env.VERSION }}.zip` below and unzip it.
+               **Do not use the green "Code → Download ZIP" button** — only this archive
+               ships the installed Node.js dependencies that PNDS App requires.
+            3. In PNDS App click **Open**, select the unzipped `Inarticulate III` folder,
+               choose **Internal Synth** and an output device, then **Load**.
+            4. Three performers scan the QR code on the monitor page to join.
+
+            You do not need to install Node.js or SuperCollider — PNDS App bundles both.
+
+            See the [README](https://github.com/xO-xN/inarticulate-iii#readme) for details.

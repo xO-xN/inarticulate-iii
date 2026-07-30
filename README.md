@@ -1,52 +1,74 @@
 # Inarticulate III
 
-一个面向三位演奏者的 PNDS（Platform for Network Digital Score）网络数字乐谱示例项目。演奏者在浏览器中以触摸交互控制各自声部的位置与连接关系；Node.js score server 通过 Socket.IO 同步视觉状态，并可将音乐控制发送到内部 SuperCollider synth 或外部 OSC 目标。
+[中文](README.zh-CN.md) | **English**
 
-> 本仓库目前是 **PNDS score project**。PNDS Tauri App 尚未在本仓库中创建；下一阶段将由 App 读取本项目的 `manifest.json`、管理进程并托管运行时。
+A networked digital score for three performers, built on **PNDS** (Platform for Networked Digital Score).
 
-## 当前状态
+Three performers each hold a phone or tablet. A touch controls the position of that performer's own voice; a second touch bends its pitch. When two performers move close enough to each other, the score draws a line between them and couples their sound. A Node.js score server keeps every device in sync over Socket.IO and turns the interaction into sound, either through the SuperCollider engine built into PNDS App or through an external OSC target.
 
-已完成并验证：
+This work is the reference implementation of the PNDS V1 project contract.
 
-- 三位演奏者与一个 Operator/Monitor 浏览器页面；
-- manifest 驱动的 HTTP 端口、音频模式与 OSC 目标；
-- `internal`、`external`、`none` 三种音频模式；
-- Internal 模式使用标准 scsynth OSC，加载项目内的 `.scsyndef`；
-- 裸 `scsynth` + Node server + 浏览器交互的 Internal 音频链路已手动验证可发声；
-- `GET /__pnds/health` 健康接口；
-- `SIGINT` / `SIGTERM` 优雅关闭 Node、Socket.IO、OSC 与项目 Synth node；
-- `manifest.json` 已对齐 PNDS V1 schema（`schemaVersion: 1`）；
-- 遵循 PNDS V1 输出总线契约（`PNDS_AUDIO_OUTPUT_BUS`）。
+---
 
-## 前置条件
+## Play This Piece
 
-- Node.js 与 npm；
-- 执行 Internal 模式时，需要安装 SuperCollider，且能够运行 `scsynth`；
-- Internal runtime 所需的 SynthDef 已包含在：
+You need two things: **PNDS App**, and **the packaged release of this work**.
 
-  ```text
-  supercollider/synthdefs/inarticulate-iii.scsyndef
-  ```
+### 1. Install PNDS App
 
-安装 Node 依赖：
+Download the latest `.dmg` from the [PNDS App releases page](https://github.com/xO-xN/PNDS-App/releases/latest) and drag PNDS into your Applications folder. It requires a Mac with Apple Silicon.
+
+On first launch macOS will report that the developer cannot be verified: right-click PNDS in Applications and choose **Open**, then click **Open** again in the dialog.
+
+You do **not** need to install Node.js or SuperCollider. PNDS App ships with both runtimes.
+
+### 2. Download this work
+
+> [!IMPORTANT]
+> Download `Inarticulate-III-<version>.zip` from the [releases page](https://github.com/xO-xN/inarticulate-iii/releases/latest).
+>
+> **Do not use the green "Code → Download ZIP" button.** That gives you the source code without its installed dependencies, and PNDS App will refuse to start the project with `Project dependencies are missing`.
+
+Unzip the archive anywhere you like. You get a single folder named `Inarticulate III` that is ready to run offline.
+
+### 3. Open and perform
+
+1. Put the Mac running PNDS App on a local network — a wired connection is recommended. Connect the three performer devices (phones or tablets) to the same network.
+2. Launch PNDS App, click **Open**, and select the unzipped `Inarticulate III` folder.
+3. Choose **Internal Synth** as the audio mode and pick your output device, then click **Load**.
+4. The monitor/conductor page appears with a QR code. Performers scan it to reach the performer page and choose Player 1, 2, or 3.
+
+To change the audio mode, output device, or master volume during a session, move the pointer to the left edge of the PNDS App window and the sidebar slides out.
+
+---
+
+## Running From Source
+
+This path is for creators and developers who want to modify the work. It runs the score server directly, without PNDS App.
+
+### Requirements
+
+- Node.js and npm
+- SuperCollider, for the Internal mode described below — running `scsynth` manually is only necessary outside PNDS App
+- The compiled SynthDef, already included at `supercollider/synthdefs/inarticulate-iii.scsyndef`
+
+Install the dependencies:
 
 ```sh
 npm install
 ```
 
-## 快速启动
+### None mode — pages and networking only
 
-### 仅测试网页与网络：None 模式
-
-不启动或发送任何 OSC：
+Starts no audio and sends no OSC:
 
 ```sh
 node server.js --audio-mode none
 ```
 
-### Internal Synth 模式
+### Internal Synth mode
 
-先启动裸 `scsynth`：
+Start a bare `scsynth` first:
 
 ```sh
 /Applications/SuperCollider.app/Contents/Resources/scsynth \
@@ -54,93 +76,93 @@ node server.js --audio-mode none
   -B 127.0.0.1
 ```
 
-再启动 score server：
+Then start the score server:
 
 ```sh
 node server.js --audio-mode internal
 ```
 
-也可以显式指定目标：
+The target can also be given explicitly:
 
 ```sh
 PNDS_OSC_TARGET=127.0.0.1:57110 \
 node server.js --audio-mode internal
 ```
 
-手动启动时不要设置 `PNDS_AUDIO_OUTPUT_BUS`；项目会回退到硬件输出 bus `0`，直接从声卡出声。
+Do not set `PNDS_AUDIO_OUTPUT_BUS` when starting manually. The project falls back to hardware output bus `0` and you hear it straight from the audio interface.
 
-成功时会出现：
+On success:
 
 ```text
 [audio] Internal Synth ready.
 ```
 
-### External OSC / SuperCollider Debug Bridge
+### External OSC and the SuperCollider debug bridge
 
-先在 SuperCollider IDE 中执行：
+Run this in the SuperCollider IDE first:
 
 ```text
 supercollider/dev/inarticulate-iii-debug.scd
 ```
 
-再启动 Node：
+Then start Node:
 
 ```sh
 PNDS_OSC_TARGET=127.0.0.1:57120 \
 node server.js --audio-mode external
 ```
 
-这里的 `57120` 是作品开发期的 sclang debug bridge；它不是 Internal 模式所使用的 scsynth 端口 `57110`。该 bridge 让创作者在**不启动 PNDS App**时，以 `external` 模式验证浏览器交互、Node OSC 映射与声音设计。它不是 App runtime：正式 Internal 模式只加载已编译的 `.scsyndef`，不会启动 `sclang`。
+Port `57120` is the work's own sclang debug bridge during development. It is not the `57110` scsynth port used by Internal mode. The bridge lets a creator verify browser interaction, the Node OSC mapping, and the sound design in `external` mode **without launching PNDS App**. It is not part of the app runtime: Internal mode only loads the compiled `.scsyndef` and never starts `sclang`.
 
-本作品的既有 External OSC 协议为：
+The External OSC protocol of this work is:
 
 ```text
 /p1, /p2, /p3                 gate
-/p1xy, /p2xy, /p3xy           x, y, amp（amp 控制 PitchShift 变调量）
+/p1xy, /p2xy, /p3xy           x, y, amp (amp drives the PitchShift amount)
 /p1-p2, /p2-p1                couple12
 /p1-p3, /p3-p1                couple13
 /p2-p3, /p3-p2                couple23
 ```
 
-这些地址属于 Inarticulate III，不是 PNDS 通用标准。
+These addresses belong to Inarticulate III. They are not a PNDS-wide standard.
 
-## 使用页面
+## The Two Pages
 
-默认端口由 `manifest.json` 提供：
+Default ports come from `manifest.json`:
 
-| 页面 | 地址 | 作用 |
-| --- | --- | --- |
-| Performer | `http://localhost:6868/` | 选择 Player 1、2 或 3 后触摸演奏 |
-| Operator / Monitor | `http://localhost:6869/` | 查看状态、显示供演奏者扫码加入的 QR code |
+| Page               | Address                  | Purpose                                                     |
+| ------------------ | ------------------------ | ----------------------------------------------------------- |
+| Performer          | `http://localhost:6868/` | Choose Player 1, 2, or 3, then perform by touch              |
+| Operator / Monitor | `http://localhost:6869/` | Watch the state and show the QR code performers scan to join |
 
-演奏者主触点控制位置；第二触点映射为每个声部的 PitchShift 变调量。两位演奏者距离进入连接阈值时，页面显示连线并发送 pairwise coupling 控制。
+A performer's primary touch controls position; a second touch maps to the PitchShift amount of that voice. When two performers come within the connection threshold, the page draws a line between them and sends pairwise coupling control.
 
-Monitor 页面为横向观察界面：中央保持完整的手机交互区域，左侧显示演奏策略说明，右侧列出本作品的 `/p*` 控制地址与最后一次发送的数据。右侧是**作品控制流**观察器：在 External 模式中这些是实际发出的 OSC 地址；在 Internal 模式中，Node 会将同一语义映射为标准 scsynth `/n_set`。
+The monitor page is a landscape observation interface: the centre keeps the full phone interaction area, the left shows the performance strategy, and the right lists the `/p*` control addresses of this work along with the last values sent. That right-hand column is a **work control stream** observer: in External mode those are the OSC addresses actually being sent, while in Internal mode Node maps the same semantics onto standard scsynth `/n_set`.
 
-monitor 中的 QR code 始终指向 performer 页面。Node 以 `PNDS_HOST_IP` 构造该 URL；PNDS App 未来会注入用户选择的 LAN IPv4。手动运行且存在多张网卡时，可显式指定正确地址：
+The QR code on the monitor page always points at the performer page. Node builds that URL from `PNDS_HOST_IP`, which PNDS App injects with the LAN IPv4 the user selected. When running manually on a machine with several network interfaces, set it explicitly:
 
 ```sh
 PNDS_HOST_IP=192.168.1.42 \
 node server.js --audio-mode internal
 ```
 
-未设置时，standalone 调试回退到第一个非 loopback IPv4。
+If it is unset, standalone debugging falls back to the first non-loopback IPv4.
 
-## 运行时健康接口
+## Runtime Health Endpoint
 
-两个 HTTP server 都提供：
+Both HTTP servers expose:
 
 ```text
 GET /__pnds/health
 ```
 
-例如：
+For example:
 
 ```sh
 curl http://127.0.0.1:6868/__pnds/health
 ```
 
-Internal 模式正常启动时的返回示例：
+A healthy Internal-mode start returns:
 
 ```json
 {
@@ -158,71 +180,72 @@ Internal 模式正常启动时的返回示例：
 }
 ```
 
-`status` 可能为 `starting`、`ready`、`error` 或 `stopping`。PNDS App 应以 JSON 中 `status === "ready"` 作为项目可显示的依据，而不只检查 HTTP 是否连通。
+`status` can be `starting`, `ready`, `error`, or `stopping`. PNDS App treats `status === "ready"` in the JSON body as the signal that the project can be displayed, rather than just checking that HTTP responds.
 
-## 停止
+## Stopping
 
-向 Node score server 发送 `SIGINT` 或 `SIGTERM`，例如在终端按 `Ctrl-C`。项目将：
+Send `SIGINT` or `SIGTERM` to the Node score server, for example with `Ctrl-C` in the terminal. The project will:
 
-1. 停止 Socket.IO 客户端；
-2. 释放 Internal Synth node 与 group；
-3. 关闭 OSC UDP socket；
-4. 关闭 performer / monitor HTTP server。
+1. Stop the Socket.IO clients
+2. Free the Internal Synth node and group
+3. Close the OSC UDP socket
+4. Close the performer and monitor HTTP servers
 
-成功时输出：
+On success:
 
 ```text
 [shutdown] complete.
 ```
 
-`scsynth` 由宿主（目前是手动终端、未来是 PNDS App）拥有；score server 不会主动终止它。
+`scsynth` is owned by the host — PNDS App, or your terminal when running manually. The score server never kills it.
 
-## 项目结构
+## Project Structure
 
 ```text
 .
 ├── audio/
-│   ├── audio-controller.js       # 项目级 Internal / External 音频语义
-│   └── osc-controller.js         # UDP 与 OSC 请求 / reply 传输层
-├── public/                       # p5.js 视觉与 Socket.IO 客户端
+│   ├── audio-controller.js       # Work-level Internal / External audio semantics
+│   └── osc-controller.js         # UDP and OSC request / reply transport
+├── public/                       # p5.js visuals and the Socket.IO client
 ├── supercollider/
 │   ├── dev/inarticulate-iii-debug.scd
 │   ├── source/inarticulate-iii.scd
 │   └── synthdefs/inarticulate-iii.scsyndef
-├── test/output-bus.test.js       # 输出总线解析的最小回归检查
-├── manifest.json                 # PNDS project 运行配置
-├── server.js                     # Express、Socket.IO 与运行时生命周期
-└── PROJECT_HANDSOFF.md           # 面向后续开发环境 / AI agent 的交接说明
+├── test/output-bus.test.js       # Minimal regression check for output bus parsing
+├── manifest.json                 # PNDS project runtime configuration
+├── server.js                     # Express, Socket.IO, and the runtime lifecycle
+└── PROJECT_HANDSOFF.md           # Handoff notes for other environments and AI agents
 ```
 
-## 音频约定
+## Audio Conventions
 
-- SynthDef 文件名：`inarticulate-iii.scsyndef`；
-- SynthDef 内部名称：`inarticulateIII`；
-- Internal group ID：`1000`；
-- Internal synth node ID：`1001`；
-- 裸 `scsynth` 的 root group 是 `0`。不要把项目 group 挂到 group `1`，后者通常由 `sclang` 客户端创建，在裸 scsynth 中不存在。
+- SynthDef file name: `inarticulate-iii.scsyndef`
+- SynthDef internal name: `inarticulateIII`
+- Internal group ID: `1000`
+- Internal synth node ID: `1001`
+- The root group of a bare `scsynth` is `0`. Do not attach the project group to group `1`; that group is normally created by an `sclang` client and does not exist in a bare scsynth.
 
-### 输出总线
+### Output Bus
 
-本项目遵守 PNDS V1 的输出总线契约：
+This project honours the PNDS V1 output bus contract:
 
-| 运行方式 | `PNDS_AUDIO_OUTPUT_BUS` | synth `out` | 说明 |
-| --- | --- | --- | --- |
-| PNDS App | 由 App 注入（如 `2`） | 该值 | App 的 master synth 从这条 private bus 读取，做总音量后输出到硬件 bus `0` |
-| 手动 standalone | 未设置 | `0` | 直接输出到硬件，便于本地调试 |
+| Running under      | `PNDS_AUDIO_OUTPUT_BUS` | synth `out` | Notes                                                                                     |
+| ------------------ | ----------------------- | ----------- | ----------------------------------------------------------------------------------------- |
+| PNDS App           | injected by the app     | that value  | The app's master synth reads that private bus, applies master volume, and sends to bus `0` |
+| Manual, standalone | unset                   | `0`         | Straight to the hardware, convenient for local debugging                                   |
 
-变量存在但不是非负整数时，项目会启动失败，而不是静默回退。
+If the variable is present but is not a non-negative integer, the project fails to start rather than falling back silently.
 
-## 检查
+## Checks
 
 ```sh
 npm run check
 npm test
 ```
 
-`check` 执行 `server.js`、两个 audio controller 与 `public/sketch.js` 的 Node 语法检查；`test` 运行输出总线解析的回归检查。
+`check` runs a Node syntax check over `server.js`, both audio controllers, and `public/sketch.js`. `test` runs the output bus parsing regression check.
 
-## 下一阶段
+## Further Reading
 
-下一阶段是构建 PNDS Tauri App。App 的最小职责是：读取 manifest、按 `audio.scsynth` 启动或停止 `scsynth`、向 Node 注入 `PNDS_OSC_TARGET` 与 `PNDS_AUDIO_OUTPUT_BUS`、启动 score server、轮询 health endpoint，并在退出或切换模式时终止对应进程。详细的现状、约束与实现建议见 [`PROJECT_HANDSOFF.md`](PROJECT_HANDSOFF.md)。
+- [`PROJECT_HANDSOFF.md`](PROJECT_HANDSOFF.md) — the actual on-disk state, constraints, and implementation notes, written for developers and AI agents continuing this work.
+- [PNDS App](https://github.com/xO-xN/PNDS-App) — the macOS host application that runs this project, and the PNDS V1 project contract it implements.
