@@ -1,5 +1,5 @@
+const IS_OPERATOR = location.port === String(window.PNDS.monitorPort);
 const P = window.PNDS;
-const IS_OPERATOR = location.port === String(P.monitorPort);
 const STORAGE = P.storageKeys;
 const EVENTS = P.events;
 
