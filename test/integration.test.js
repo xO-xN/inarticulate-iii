@@ -54,7 +54,8 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   const health = await waitForHealthReady();
 
   assert.equal(health.projectId, "inarticulate-iii");
-  assert.equal(health.audioMode, "none");
+  assert.equal(health.audioMode, "internal");
+  assert.equal(health.audio.status, "ready");
   assert.equal(health.scoreServer.performerPort, 6868);
   assert.equal(health.scoreServer.monitorPort, 6869);
 

@@ -107,7 +107,7 @@ node server.js --audio-mode internal
 先在 SuperCollider IDE 中执行：
 
 ```text
-supercollider/dev/inarticulate-iii-debug.scd
+supercollider/debug/inarticulate-iii-debug.scd
 ```
 
 再启动 Node：

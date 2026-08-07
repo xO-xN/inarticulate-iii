@@ -109,7 +109,7 @@ On success:
 Run this in the SuperCollider IDE first:
 
 ```text
-supercollider/dev/inarticulate-iii-debug.scd
+supercollider/debug/inarticulate-iii-debug.scd
 ```
 
 Then start Node:

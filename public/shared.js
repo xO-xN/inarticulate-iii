@@ -4,26 +4,23 @@
 //
 // Single source of truth:
 //   Ports      → manifest.json (browser gets them via __config.js injected
-//                 by the server; ports are read lazily so the page never
-//                 races on __config.js load order)
+//                 by the server)
 //   Events     → here (events)
 //   Player IDs → here (playerIds)
 //   Storage    → here (storageKeys)
 
 (function (root, factory) {
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = factory({ getPorts: getPortsFromManifest });
+    module.exports = factory(readManifestPorts());
   } else {
-    root.PNDS = factory({ getPorts: getPortsFromConfig });
+    root.PNDS = factory(readConfigPorts());
   }
-})(typeof self !== "undefined" ? self : this, function (deps) {
-  var getPorts = deps.getPorts;
-
+})(typeof self !== "undefined" ? self : this, function (ports) {
   return {
     // Read from manifest.json (Node) or __config.js (browser).
     // Change ports ONLY in manifest.json.
-    performerPort: getPorts().performerPort,
-    monitorPort: getPorts().monitorPort,
+    performerPort: ports.performerPort,
+    monitorPort: ports.monitorPort,
 
     playerIds: ["1", "2", "3"],
 
@@ -48,7 +45,7 @@
 });
 
 // Node: read ports from manifest.json (the single source of truth).
-function getPortsFromManifest() {
+function readManifestPorts() {
   var fs = require("node:fs");
   var path = require("node:path");
   // shared.js lives in public/; the manifest is one directory up.
@@ -61,10 +58,8 @@ function getPortsFromManifest() {
 }
 
 // Browser: read ports from the injected __config.js script.
-// Uses a getter so the page reads __PNDS_PORTS__ only when it actually
-// accesses performerPort / monitorPort — never races on load order.
-function getPortsFromConfig() {
-  var cfg = root.__PNDS_PORTS__;
+function readConfigPorts() {
+  var cfg = window.__PNDS_PORTS__;
   if (!cfg) {
     throw new Error(
       "__PNDS_PORTS__ not set — ensure __config.js is loaded before shared.js",

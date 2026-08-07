@@ -157,7 +157,7 @@ audioController.stop();
 ### SuperCollider 文件
 
 - `supercollider/source/inarticulate-iii.scd`：SynthDef 源码与声音设计参考；
-- `supercollider/dev/inarticulate-iii-debug.scd`：sclang 的本地 External OSC debug bridge；
+- `supercollider/debug/inarticulate-iii-debug.scd`：sclang 的本地 External OSC debug bridge；
 - `supercollider/synthdefs/inarticulate-iii.scsyndef`：Internal runtime 实际加载的已编译文件。
 
 用户已手动生成并确认 `.scsyndef` 可用。**不要把“让 `.scd` 自动由 sclang 编译”当作当前任务。** 如需重新生成 artifact，必须确保生成的 SynthDef 内部名称仍为 `inarticulateIII`。
@@ -307,7 +307,7 @@ curl http://127.0.0.1:6868/__pnds/health
 
 ### External debug bridge
 
-1. 在 SuperCollider IDE 执行 `supercollider/dev/inarticulate-iii-debug.scd`；
+1. 在 SuperCollider IDE 执行 `supercollider/debug/inarticulate-iii-debug.scd`；
 2. 启动：
 
 ```sh
