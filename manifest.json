@@ -1,30 +1,25 @@
 {
-    "schemaVersion": 1,
-    "id": "inarticulate-iii",
-    "name": "Inarticulate III",
-    "version": "1.0.1",
-    "description": "A networked digital score for three performers.",
-    "scoreServer": {
-        "entry": "server.js",
-        "workingDirectory": ".",
-        "performerPort": 6868,
-        "monitorPort": 6869
+  "schemaVersion": 1,
+  "id": "inarticulate-iii",
+  "name": "Inarticulate III",
+  "version": "1.0.1",
+  "description": "A networked digital score for three performers.",
+  "scoreServer": {
+    "entry": "server.js",
+    "workingDirectory": ".",
+    "performerPort": 6868,
+    "monitorPort": 6869
+  },
+  "audio": {
+    "defaultMode": "internal",
+    "supportedModes": ["internal", "external", "none"],
+    "outputChannels": 2,
+    "synthdefs": ["supercollider/synthdefs/inarticulate-iii.scsyndef"],
+    "scsynth": {
+      "sampleRate": 48000,
+      "blockSize": 64,
+      "audioBusChannels": 128
     },
-    "audio": {
-        "defaultMode": "internal",
-        "supportedModes": [
-            "internal",
-            "external",
-            "none"
-        ],
-        "synthdefs": [
-            "supercollider/synthdefs/inarticulate-iii.scsyndef"
-        ],
-        "scsynth": {
-            "sampleRate": 48000,
-            "blockSize": 64,
-            "audioBusChannels": 128
-        },
-        "standaloneTarget": "127.0.0.1:57110"
-    }
+    "standaloneTarget": "127.0.0.1:57110"
+  }
 }

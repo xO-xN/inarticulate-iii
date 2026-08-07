@@ -46,25 +46,38 @@ Internal 启动过程：
 
 ```text
 Inarticulate III/
+├── lib/                         ← 可复用核心（从 server.js 和 audio/ 提取）
+│   ├── config.js                manifest / CLI / 端口 / 环境变量解析
+│   ├── network.js               LAN IPv4 枚举
+│   ├── health.js                /__pnds/health (HealthTracker)
+│   ├── osc-transport.js         UDP OSC 传输（osc-min + dgram）
+│   ├── audio-engine.js          scsynth 会话生命周期
+│   ├── players.js               演奏者身份分配与 claim token
+│   └── lifecycle.js             优雅关闭（SIGINT / SIGTERM）
 ├── audio/
-│   ├── audio-controller.js
-│   └── osc-controller.js
+│   └── controller.js            作品音频语义层（Internal / External / None）
 ├── public/
 │   ├── assets/
 │   ├── libraries/p5.min.js
-│   ├── index.html
-│   ├── sketch.js
+│   ├── index.html               ← 加载 __config.js + shared.js（端口动态注入）
+│   ├── shared.js                ← UMD 单事实来源（事件名、playerIds、storageKeys）
+│   ├── sketch.js                ← p5.js 视觉与交互
 │   └── style.css
 ├── supercollider/
-│   ├── dev/inarticulate-iii-debug.scd
+│   ├── debug/inarticulate-iii-debug.scd
 │   ├── source/inarticulate-iii.scd
 │   └── synthdefs/inarticulate-iii.scsyndef
-├── test/output-bus.test.js
+├── test/
+│   ├── audio.test.js
+│   ├── integration.test.js
+│   └── players.test.js
+├── docs/
+│   └── handoff.md
 ├── manifest.json
 ├── package.json
-├── server.js
+├── server.js                    ← 精简编排层（~560 行，配置/健康/生命周期已提取到 lib/）
 ├── README.md
-└── PROJECT_HANDSOFF.md
+└── README.zh-CN.md
 ```
 
 ### `manifest.json`
@@ -229,47 +242,21 @@ debug bridge 使用 sclang 默认 OSC 端口 `57120`；Internal runtime 通常�
 GET /__pnds/health
 ```
 
-返回结构：
+返回结构参见 `lib/health.js`（`HealthTracker.payload()`）。
 
-```json
-{
-  "status": "ready",
-  "projectId": "inarticulate-iii",
-  "audioMode": "internal",
-  "audio": {
-    "status": "ready",
-    "target": "127.0.0.1:57110"
-  },
-  "scoreServer": {
-    "performerPort": 6868,
-    "monitorPort": 6869
-  }
-}
-```
-
-状态含义：
-
-```text
-starting  HTTP 或 audio 尚未完成初始化
-ready     performer、monitor 与 audio 都已可用
-error     音频或 HTTP 初始化失败；payload 中带 error 信息
-stopping  已接收到关闭信号
-```
-
-PNDS App 应轮询 performer endpoint，并只在 `status === "ready"` 时显示项目页面。接口返回 JSON 本身不表示项目 ready，必须读取这个字段。
+状态含义：`starting` → `ready` / `error` / `stopping`。PNDS App 应轮询 performer endpoint，只在 `status === "ready"` 时显示项目页面。
 
 ### Graceful shutdown
 
-`SIGINT` 与 `SIGTERM` 已实现。关闭顺序：
+`SIGINT` 与 `SIGTERM` 已实现（`lib/lifecycle.js`）。关闭顺序：
 
-1. 标记 stopping，停止新音频事件；
+1. 标记 stopping（health）；
 2. 清除 release retry timers；
 3. 关闭 Socket.IO；
-4. 等待现有 audio startup 完成；
-5. 调用 `audioController.stop()`，释放 synth / group 与 UDP socket；
-6. 关闭两个 HTTP server。
+4. 调用 `projectAudio.stop()`，释放 synth / group 与 UDP socket；
+5. 关闭两个 HTTP server。
 
-score project 不会停止 scsynth，因为 scsynth 属于宿主进程（现在是手动终端；之后是 Tauri App）。
+注意：`lib/lifecycle.js` 的 `process.exit()` **已移除**。shutdown 完成后不再强制退出 Node 进程——这允许 PNDS App 的 Node 托管层在清理完成后自行决定进程生命周期。
 
 ## 6. 手动运行与验证
 
@@ -328,18 +315,13 @@ PNDS_OSC_TARGET=127.0.0.1:57120 \
 node server.js --audio-mode external
 ```
 
-## 7. 已知限制：留给 App 阶段处理
+## 7. 已知限制
 
-以下不是当前 score project 的核心发声阻断项，但会影响 PNDS App 的通用托管能力：
-
-1. **前端端口仍硬编码**
-   - `public/index.html` 与 `public/sketch.js` 默认 Socket.IO 指向 `http://<host>:6868`；
-   - `public/sketch.js` 以 `location.port === "6869"` 判断 monitor；
-   - 因此第一版 App 应先使用 manifest 中固定端口。若 App 需要动态端口或 HTTPS/WebView 兼容，应在 project 中增加运行时前端配置，例如 `/__pnds/config.js`。
-
-2. **`node-osc` 是未使用的直接依赖**
-   - 当前 source 使用 `osc-min`；
-   - 不要为了清理而无验证地改 lockfile。可在单独依赖维护任务中移除。
+1. **前端端口已通过 `__config.js` 动态注入**
+   - `server.js` 在 `__config.js` 中注入 `manifest.json` 的端口；
+   - `public/shared.js` 在浏览器端读取 `window.__PNDS_PORTS__`，在 Node 端从 `manifest.json` 读取；
+   - `public/sketch.js` 通过 `window.PNDS.monitorPort` 判断 monitor；
+   - 端口只在 `manifest.json` 一处定义。
 
 ## 8. 下一阶段：PNDS Tauri App
 

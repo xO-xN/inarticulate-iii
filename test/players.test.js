@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const {
   decidePlayerClaim,
-} = require("../player-identity");
+} = require("../lib/players");
 
 const PLAYER_ID = "1";
 const FIRST_SOCKET = "socket-first";

@@ -8,24 +8,31 @@
         />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-        <meta name="apple-mobile-web-app-title" content="Sketch" />
+        <meta name="apple-mobile-web-app-title" content="Inarticulate III" />
 
-        <title>Sketch</title>
+        <title>Inarticulate III</title>
 
         <link rel="stylesheet" type="text/css" href="style.css" />
 
+        <script src="__config.js"></script>
+        <script src="shared.js"></script>
         <script src="libraries/p5.min.js"></script>
         <script>
+            // Socket.IO is served by the performer server; the monitor page
+            // loads it cross-port. No CDN: performances run offline.
+            // Ports come from manifest.json via __config.js → shared.js.
             document.write(
                 '\x3Cscript src="http://' +
                     location.hostname +
-                    ':6868/socket.io/socket.io.js"\x3E\x3C/script\x3E',
+                    ':' +
+                    window.PNDS.performerPort +
+                    '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
             );
         </script>
     </head>
 
     <body>
-        <aside id="monitor-left-panel" class="monitor-panel" aria-label="演奏策略">
+        <aside id="monitor-left-panel" class="monitor-panel" aria-label="Performance strategy">
             <p class="panel-kicker">INARTICULATE III</p>
             <h1>失语 III<br />数字乐谱规则</h1>
 
@@ -33,7 +40,7 @@
                 <h2>演奏规则</h2>
                 <ol>
                     <li>每人有两条音符曲线与一个休止符来演奏。</li>
-                    <li>箭头方向为音符曲线的方向；数字的一端为起点，数字表示“演奏次序（演奏次数）”。</li>
+                    <li>箭头方向为音符曲线的方向；数字的一端为起点，数字表示"演奏次序（演奏次数）"。</li>
                     <li>每个乐手需要聆听其他乐手的声音，保证彼此的音符曲线起始点同步。</li>
                     <li>当乐手的触摸点靠近时，放慢演奏。</li>
                 </ol>
@@ -50,7 +57,7 @@
             </section>
         </aside>
 
-        <aside id="monitor-right-panel" class="monitor-panel" aria-label="实时 OSC 控制信息">
+        <aside id="monitor-right-panel" class="monitor-panel" aria-label="Live OSC control stream">
             <div class="osc-panel-heading">
                 <p class="panel-kicker">LIVE CONTROL STREAM</p>
                 <h2>OSC 输出</h2>
@@ -58,18 +65,18 @@
             </div>
 
             <div id="osc-rows" aria-live="polite">
-                <div class="osc-row" data-osc-address="/p1"><code>/p1</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p2"><code>/p2</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p3"><code>/p3</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p1xy"><code>/p1xy</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p2xy"><code>/p2xy</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p3xy"><code>/p3xy</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p1-p2"><code>/p1-p2</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p2-p1"><code>/p2-p1</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p1-p3"><code>/p1-p3</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p3-p1"><code>/p3-p1</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p2-p3"><code>/p2-p3</code><output>—</output></div>
-                <div class="osc-row" data-osc-address="/p3-p2"><code>/p3-p2</code><output>—</output></div>
+                <div class="osc-row" data-osc-address="/p1"><code>/p1</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p2"><code>/p2</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p3"><code>/p3</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p1xy"><code>/p1xy</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p2xy"><code>/p2xy</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p3xy"><code>/p3xy</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p1-p2"><code>/p1-p2</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p2-p1"><code>/p2-p1</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p1-p3"><code>/p1-p3</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p3-p1"><code>/p3-p1</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p2-p3"><code>/p2-p3</code><output>&mdash;</output></div>
+                <div class="osc-row" data-osc-address="/p3-p2"><code>/p3-p2</code><output>&mdash;</output></div>
             </div>
         </aside>
 
@@ -82,7 +89,7 @@
 
         <div id="badge-user" class="badge">
             <span id="badge-user-icon">&#x1F3B9;</span>
-            <span id="badge-user-text">—</span>
+            <span id="badge-user-text">&mdash;</span>
         </div>
 
         <div id="badge-clients" class="badge">

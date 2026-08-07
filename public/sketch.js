@@ -1,7 +1,7 @@
-const IS_OPERATOR = location.port === "6869";
-
-const PLAYER_ID_STORAGE_KEY = "inarticulate-iii.player-id";
-const PLAYER_CLAIM_STORAGE_KEY = "inarticulate-iii.player-claim";
+const P = window.PNDS;
+const IS_OPERATOR = location.port === String(P.monitorPort);
+const STORAGE = P.storageKeys;
+const EVENTS = P.events;
 
 let socket;
 let ID; // Client Browser ID
@@ -23,11 +23,9 @@ const { pow } = Math;
 
 function readStoredPlayerId() {
   try {
-    const playerId = localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+    const playerId = localStorage.getItem(STORAGE.playerId);
 
-    return ["1", "2", "3"].includes(playerId)
-      ? playerId
-      : null;
+    return P.playerIds.includes(playerId) ? playerId : null;
   } catch {
     return null;
   }
@@ -35,7 +33,7 @@ function readStoredPlayerId() {
 
 function getClaimToken() {
   try {
-    const stored = localStorage.getItem(PLAYER_CLAIM_STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE.playerClaim);
 
     if (stored) {
       return stored;
@@ -45,7 +43,7 @@ function getClaimToken() {
       ? crypto.randomUUID()
       : createClaimToken();
 
-    localStorage.setItem(PLAYER_CLAIM_STORAGE_KEY, token);
+    localStorage.setItem(STORAGE.playerClaim, token);
     return token;
   } catch {
     return null;
@@ -56,15 +54,14 @@ function createClaimToken() {
   const values = new Uint32Array(4);
   crypto.getRandomValues(values);
 
-  return Array.from(
-    values,
-    (value) => value.toString(16).padStart(8, "0"),
+  return Array.from(values, (value) =>
+    value.toString(16).padStart(8, "0"),
   ).join("");
 }
 
 function persistPlayerId(playerId) {
   try {
-    localStorage.setItem(PLAYER_ID_STORAGE_KEY, playerId);
+    localStorage.setItem(STORAGE.playerId, playerId);
   } catch {
     // The current connection can still work when browser storage is blocked.
   }
@@ -72,14 +69,14 @@ function persistPlayerId(playerId) {
 
 function clearStoredPlayerId() {
   try {
-    localStorage.removeItem(PLAYER_ID_STORAGE_KEY);
+    localStorage.removeItem(STORAGE.playerId);
   } catch {
     // The current connection can still continue after a rejected claim.
   }
 }
 
 function selectPlayer(playerId) {
-  socket.emit("selectId", {
+  socket.emit(EVENTS.selectId, {
     userType: playerId,
     claimToken: performerClaimToken,
   });
@@ -97,7 +94,7 @@ function promptForUserType() {
       return;
     }
 
-    const validSelection = ["1", "2", "3"].includes(selection);
+    const validSelection = P.playerIds.includes(selection);
 
     if (validSelection) {
       selectPlayer(selection);
@@ -127,7 +124,7 @@ function setup() {
   }
 
   const hostname = window.location.hostname;
-  socket = io.connect(`http://${hostname}:6868`);
+  socket = io.connect(`http://${hostname}:${P.performerPort}`);
 
   // --- Connection status UI ---
   socket.on("connect", () => {
@@ -138,7 +135,7 @@ function setup() {
     hasConnectedOnce = true;
 
     if (IS_OPERATOR) {
-      socket.emit("selectId", { userType: "0" });
+      socket.emit(EVENTS.selectId, { userType: "0" });
       showQR();
       return;
     }
@@ -161,7 +158,7 @@ function setup() {
   }
   // --- End connection status UI ---
 
-  socket.on("pointSend", (data) => {
+  socket.on(EVENTS.pointSend, (data) => {
     if (data.clear) {
       delete remotePoints[data.clientId];
     } else if (data && data.main) {
@@ -178,7 +175,7 @@ function setup() {
     }
   });
 
-  socket.on("clientId", (clientId) => {
+  socket.on(EVENTS.clientId, (clientId) => {
     ID = clientId;
     // A stored player ID is claimed immediately on connect. Only prompt
     // when this browser has neither a confirmed nor a stored selection.
@@ -188,19 +185,19 @@ function setup() {
   });
 
   // Add listener for client count updates
-  socket.on("clientCount", (count) => {
+  socket.on(EVENTS.clientCount, (count) => {
     clientCount = count;
     document.getElementById("badge-clients-text").textContent = count;
   });
 
-  socket.on("oscActivity", (data) => {
+  socket.on(EVENTS.oscActivity, (data) => {
     if (IS_OPERATOR) {
       updateOscActivity(data);
     }
   });
 
   	// Listen for ID selection confirmation
-  	socket.on("idConfirmation", (data) => {
+  	socket.on(EVENTS.idConfirmation, (data) => {
   		if (data.status === "accepted") {
   			userType = data.userType;
   			selectionMade = true;
@@ -229,7 +226,7 @@ function setup() {
   	});
 
   	// Operator-triggered role reset: clear local identity and re-prompt.
-  	socket.on("rolesReset", () => {
+  	socket.on(EVENTS.rolesReset, () => {
   		if (!IS_OPERATOR) {
   			selectionMade = false;
   			userType = null;
@@ -257,7 +254,7 @@ function setup() {
       }
     });
     document.getElementById("reset-roles").addEventListener("click", () => {
-      socket.emit("resetRoles");
+      socket.emit(EVENTS.resetRoles);
     });
   }
 }
@@ -411,12 +408,12 @@ function draw() {
     // Throttle: emit point data every 2 frames (~30fps) to reduce WiFi load
     pointFrameCount++;
     if (pointFrameCount % 2 === 0) {
-      socket.volatile.emit("point", data);
+      socket.volatile.emit(EVENTS.point, data);
     }
   } else if (userType !== "0") {
     localPoint = undefined;
     if (!touchReleasedSent) {
-      socket.volatile.emit("point", []); // Send 0 only once
+      socket.volatile.emit(EVENTS.point, []); // Send 0 only once
       touchReleasedSent = true; // Set flag to prevent repeated sends
     }
   }
@@ -467,10 +464,10 @@ function draw() {
 
         if (lineId) {
           if (dst < maxLineLength) {
-            socket.volatile.emit("lineStroke", { id: lineId, stroke: sw });
+            socket.volatile.emit(EVENTS.lineStroke, { id: lineId, stroke: sw });
             newActiveLines[lineId] = true;
           } else {
-            socket.volatile.emit("lineStroke", { id: lineId, stroke: 0 });
+            socket.volatile.emit(EVENTS.lineStroke, { id: lineId, stroke: 0 });
           }
         }
       }
@@ -489,7 +486,7 @@ function draw() {
   if (userType !== "0") {
     for (let id in activeLines) {
       if (!newActiveLines[id]) {
-        socket.volatile.emit("lineStroke", { id: id, stroke: 0 });
+        socket.volatile.emit(EVENTS.lineStroke, { id: id, stroke: 0 });
       }
     }
     activeLines = newActiveLines;
