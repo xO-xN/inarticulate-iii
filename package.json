@@ -4,6 +4,9 @@
     "private": true,
     "description": "A networked digital score for three performers.",
     "main": "server.js",
+    "engines": {
+        "node": ">=24 <25"
+    },
     "scripts": {
         "start": "node server.js",
         "dev": "node server.js --audio-mode internal",

@@ -166,11 +166,11 @@ function setup() {
       delete remotePoints[data.clientId];
     } else if (data && data.main) {
       remotePoints[data.clientId] = {
-        main: createVector(data.main.x + width / 2, data.main.y + height / 2),
+        main: { x: data.main.x, y: data.main.y },
         amp: data.amp
           ? {
-              x: data.amp.x + width / 2,
-              y: data.amp.y + height / 2,
+              x: data.amp.x,
+              y: data.amp.y,
               length: data.amp.length,
             }
           : null,
@@ -331,6 +331,14 @@ function hideQR() {
 
 let touchReleasedSent = false; // Flag to track if 0 has been sent
 
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function toCanvasPoint(point) {
+  return createVector(point.x + width / 2, point.y + height / 2);
+}
+
 function draw() {
   background(colors[0]);
 
@@ -417,18 +425,20 @@ function draw() {
   // Draw remote points with ID label for operator mode
   for (let key in remotePoints) {
     const ptData = remotePoints[key];
+    const mainPoint = toCanvasPoint(ptData.main);
+    const ampPoint = ptData.amp ? toCanvasPoint(ptData.amp) : null;
     let diameter = ptData.amp ? 20 + ptData.amp.length * 60 : 20;
-    circle(ptData.main.x, ptData.main.y, diameter);
-    if (ptData.amp) {
-      circle(ptData.amp.x, ptData.amp.y, 12);
+    circle(mainPoint.x, mainPoint.y, diameter);
+    if (ampPoint) {
+      circle(ampPoint.x, ampPoint.y, 12);
     }
     textAlign(RIGHT, TOP);
     fill(colors[4]);
     textSize(12);
     text(
       `🎹 ${key}`,
-      ptData.main.x + diameter * 1.5,
-      ptData.main.y - diameter * 1.5,
+      mainPoint.x + diameter * 1.5,
+      mainPoint.y - diameter * 1.5,
     );
   }
 
@@ -437,7 +447,7 @@ function draw() {
   if (localPoint && userType !== "0") points.push({ id: ID, pt: localPoint });
   // Map remotePoints: key is remote client id.
   for (const [key, dp] of Object.entries(remotePoints)) {
-    points.push({ id: key, pt: dp.main });
+    points.push({ id: key, pt: toCanvasPoint(dp.main) });
   }
 
   // Connect points among points; only emit event if one point is local.
