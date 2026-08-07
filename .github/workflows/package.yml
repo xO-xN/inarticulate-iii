@@ -39,8 +39,8 @@ jobs:
       - name: Assemble runnable project bundle
         run: |
           mkdir -p "$BUNDLE/supercollider"
-          cp manifest.json package.json server.js player-identity.js "$BUNDLE/"
-          cp -R audio public node_modules "$BUNDLE/"
+          cp manifest.json package.json server.js "$BUNDLE/"
+          cp -R lib audio public node_modules "$BUNDLE/"
           cp -R supercollider/synthdefs "$BUNDLE/supercollider/"
           cp .github/bundle/README.md "$BUNDLE/README.md"
           find "$BUNDLE" -name '.DS_Store' -delete
@@ -124,3 +124,15 @@ jobs:
             You do not need to install Node.js or SuperCollider — PNDS App bundles both.
 
             See the [README](https://github.com/xO-xN/inarticulate-iii#readme) for details.
+
+            ### Changes in v${VERSION}
+
+            - Refactored file structure: reusable modules in `lib/`, work layer in `audio/controller.js`
+            - Single source of truth: `public/shared.js` for events, player IDs, storage keys
+            - Ports dynamically injected from `manifest.json` via `__config.js`
+            - `process.exit()` removed from shutdown (PNDS App compatibility)
+            - Removed unused dependencies (`node-osc`, `qrcode-terminal`)
+            - Expanded test suite (audio engine, players, integration)
+            - `supercollider/dev/` renamed to `supercollider/debug/`
+            - `PROJECT_HANDSOFF.md` moved to `docs/handoff.md`
+            - All audio semantics, OSC protocol, p5.js visuals unchanged
