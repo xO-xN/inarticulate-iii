@@ -10,7 +10,6 @@
 
 const path = require("node:path");
 const express = require("express");
-const QRCode = require("qrcode");
 
 const {
   loadManifest,
@@ -25,6 +24,7 @@ const { resolveHostLanIp } = require("./lib/network");
 const { HealthTracker } = require("./lib/health");
 const { AudioEngine } = require("./lib/audio-engine");
 const { decidePlayerClaim } = require("./lib/players");
+const { qrHandler } = require("./lib/qr");
 const {
   attachShutdown,
   closeHttpServer,
@@ -69,7 +69,7 @@ monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
 // The single source of truth is manifest.json.
 function configScript(request, response) {
   response.type("application/javascript").send(
-    `window.__PNDS_PORTS__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort} };`,
+    `window.__PNDS_CONFIG__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort} };`,
   );
 }
 
@@ -87,23 +87,10 @@ app.get("/__pnds/health", health.handler());
 monitorApp.get("/__pnds/health", health.handler());
 
 // QR code for the performer page, shown on the monitor page.
-monitorApp.get("/qr", (request, response) => {
-  const url = `http://${hostLanIp}:${serverConfig.performerPort}/`;
-
-  QRCode.toBuffer(url, {
-    type: "png",
-    width: 480,
-    margin: 1,
-    errorCorrectionLevel: "M",
-  })
-    .then((buffer) => {
-      response.type("image/png").send(buffer);
-    })
-    .catch((error) => {
-      console.error("[qr] generation failed:", error);
-      response.status(500).send("QR generation failed.");
-    });
-});
+monitorApp.get(
+  "/qr",
+  qrHandler(`http://${hostLanIp}:${serverConfig.performerPort}/`),
+);
 
 // ------------------------------------------------------------
 // Audio layer
@@ -261,6 +248,8 @@ io.on("connection", (socket) => {
       return;
     }
 
+    let selectStatus = "accepted";
+
     if (userType !== "0") {
       const decision = decidePlayerClaim(playerAssignments, {
         playerId: userType,
@@ -269,6 +258,9 @@ io.on("connection", (socket) => {
       });
 
       if (decision.status === "rejected") {
+        console.log(
+          `[protocol] select ${userType} rejected: ${decision.message}`,
+        );
         socket.emit(EVENTS.idConfirmation, {
           status: "rejected",
           userType,
@@ -280,10 +272,18 @@ io.on("connection", (socket) => {
       if (decision.status === "takeover") {
         transferPlayerAssignment(decision.previousSocketId);
       }
+
+      selectStatus = decision.status;
     }
 
     removePlayerAssignment(socket);
     socket.userType = userType;
+
+    console.log(
+      userType === "0"
+        ? "[protocol] select: operator"
+        : `[protocol] select: player ${userType} (${selectStatus})`,
+    );
 
     if (userType !== "0") {
       playerAssignments.set(userType, {
@@ -496,6 +496,7 @@ io.on("connection", (socket) => {
     if (isPlayer) {
       const playerId = Number(socket.userType);
 
+      console.log(`[protocol] disconnect: player ${playerId}`);
       broadcastOscActivity(`/p${playerId}`, [0]);
 
       projectAudio.releasePlayer(playerId).catch((error) => {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "inarticulate-iii",
   "name": "Inarticulate III",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A networked digital score for three performers.",
   "scoreServer": {
     "entry": "server.js",
@@ -16,7 +16,6 @@
     "outputChannels": 2,
     "synthdefs": ["supercollider/synthdefs/inarticulate-iii.scsyndef"],
     "scsynth": {
-      "sampleRate": 48000,
       "blockSize": 64,
       "audioBusChannels": 128
     },

@@ -13,7 +13,6 @@
 // The single-synth design (vs. per-voice synths) is intentional: the three
 // voices cross-modulate each other via FM feedback (LocalIn/LocalOut).
 
-const { AudioEngine } = require("../lib/audio-engine");
 const { oscFloat } = require("../lib/osc-transport");
 
 const VALID_PLAYERS = new Set([1, 2, 3]);
@@ -73,11 +72,10 @@ function parsePair(pair) {
 }
 
 class ProjectAudio {
+  // The engine only needs to satisfy the engine interface (mode,
+  // outputChannels, outputBus and the command methods) — no class check,
+  // so tests and alternate engines slot in at this seam.
   constructor(engine) {
-    if (!(engine instanceof AudioEngine)) {
-      throw new Error("ProjectAudio requires an AudioEngine instance.");
-    }
-
     this.engine = engine;
   }
 
@@ -122,7 +120,7 @@ class ProjectAudio {
       return;
     }
 
-    await this.engine.send(`/p${id}`, oscFloat(gate));
+    await this.engine.send(`/p${id}`, [oscFloat(gate)]);
   }
 
   async setPlayerPosition(player, { x, y, amp = 0 }) {
@@ -148,9 +146,7 @@ class ProjectAudio {
 
     await this.engine.send(
       `/p${id}xy`,
-      oscFloat(xValue),
-      oscFloat(yValue),
-      oscFloat(ampValue),
+      [oscFloat(xValue), oscFloat(yValue), oscFloat(ampValue)],
     );
   }
 
@@ -171,7 +167,7 @@ class ProjectAudio {
       return;
     }
 
-    await this.engine.send(parsedPair.externalAddress, oscFloat(stroke));
+    await this.engine.send(parsedPair.externalAddress, [oscFloat(stroke)]);
   }
 
   async releasePlayer(player) {

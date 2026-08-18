@@ -103,7 +103,6 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
       "supercollider/synthdefs/inarticulate-iii.scsyndef"
     ],
     "scsynth": {
-      "sampleRate": 48000,
       "blockSize": 64,
       "audioBusChannels": 128
     },
@@ -114,7 +113,7 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
 
 几个容易踩坑的点：
 
-- `audio.scsynth` 在 Internal 模式下是**必填项**，App 用它启动 `scsynth`，三个字段都不可缺；
+- `audio.scsynth` 的 `blockSize` / `audioBusChannels` 在 Internal 模式下是**必填项**，App 用它们启动 `scsynth`；`sampleRate` 已从 schema 移除（App 全局偏好是采样率的唯一来源，默认 48000；旧工程里的残留字段会被容忍但不再生效）；
 - `standaloneTarget` **仅供手动调试**。PNDS App 不得读取它，必须注入自己分配的动态端口；
 - 早期版本的 `roles` 字段已删除。角色边界就是端口本身：`performerPort` 是演奏者页，`monitorPort` 是 App 显示的 conductor / monitor 页，两者都用 `/`。
 
@@ -319,7 +318,7 @@ node server.js --audio-mode external
 
 1. **前端端口已通过 `__config.js` 动态注入**
    - `server.js` 在 `__config.js` 中注入 `manifest.json` 的端口；
-   - `public/shared.js` 在浏览器端读取 `window.__PNDS_PORTS__`，在 Node 端从 `manifest.json` 读取；
+   - `public/shared.js` 在浏览器端读取 `window.__PNDS_CONFIG__`，在 Node 端从 `manifest.json` 读取；
    - `public/sketch.js` 通过 `window.PNDS.monitorPort` 判断 monitor；
    - 端口只在 `manifest.json` 一处定义。
 
@@ -381,3 +380,19 @@ status=ready 后显示 monitor 页面
 
 - 不要无确认执行 `npm audit fix`、大范围依赖升级或重写 p5.js 交互；
 - 对 App 开发，优先利用已有 `manifest.json`、`/__pnds/health` 与 SIGTERM shutdown 契约，不要为第一版引入项目特例。
+
+## 10. 2026-08-18 回改记录（对齐 PNDS Template 定稿）
+
+按定稿模板回改 lib 核心，作品自身的协议与音频语义（选 ID / takeover / 单 synth 三声部耦合）**保持不变**：
+
+- `lib/audio-engine.js` 与模板定稿同源：`stopped` 标志（shutdown 竞态下晚到的命令为 no-op）、`transportFactory` 注入（测试用记录型假传输覆盖 boot 序列与命令编码）、`send(address, args[])` 数组签名（controller 三处调用点已改）。本工程独有并保留：`verifySynthControl()`（`/s_get` 回读验证 `/s_new` 真的建成节点——fire-and-forget 的失败否则不可见）；待模板侧采纳后两文件将完全一致。
+- `lib/lifecycle.js`：shutdown `finally { process.exit() }`——即使有残留 socket/timer 挂住事件循环也保证退出（App 等的是进程退出）。
+- `lib/qr.js`：QR 端点从 server.js 内联抽出为 `qrHandler`（与模板同文件）。
+- `__PNDS_PORTS__` → `__PNDS_CONFIG__`（shared.js 的 `readConfig()`），对齐平台注入约定。
+- `lib/config.js` 标签对齐：`External OSC` / `None`。
+- server.js 协议生命周期日志：`[protocol] select / select rejected / disconnect: player N`（现场排查重连循环用，与模板同实践）。
+- manifest 删除 `sampleRate`（App 全局偏好是唯一来源）。
+- `audio/controller.js` 去掉 `instanceof AudioEngine` 守卫——按引擎接口约束，测试注入替身引擎。
+- 测试从 4 个增至 17 个：engine 假传输套件、controller 假引擎套件、集成测试加 `assertPortsFree()` 端口占用守卫。
+
+刻意**不**回改的部分：模板的 `lib/protocol.js` / `PlayerRegistry`（自动分配 id 的模型不适用于本作品的选 ID + takeover 模型）、born-restored 重连恢复（本作品演奏状态是触摸瞬态，pair stroke 存活在 synth 内，无按客户端持久化的音频状态）、`ID: N CH: N` 状态行（无声道改派概念）。

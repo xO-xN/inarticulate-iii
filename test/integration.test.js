@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const net = require("node:net");
 
 const { io } = require("socket.io-client");
 
@@ -43,7 +44,32 @@ function waitForHealthReady() {
   });
 }
 
+// Fails fast with an actionable message when a dev server already holds
+// the ports — otherwise the spawned server cannot bind and the health
+// poll would silently talk to the wrong instance.
+async function assertPortsFree() {
+  for (const port of [6868, 6869]) {
+    const inUse = await new Promise((resolve) => {
+      const probe = net.connect({ port, host: "127.0.0.1" });
+
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve(true);
+      });
+      probe.once("error", () => resolve(false));
+    });
+
+    if (inUse) {
+      throw new Error(
+        `Port ${port} is already in use — stop running dev servers (npm run dev / dev:none) before the integration test.`,
+      );
+    }
+  }
+}
+
 test("score server: health, selectId, point, lineStroke, resetRoles, pages", async (t) => {
+  await assertPortsFree();
+
   const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
     cwd: PROJECT_ROOT,
     stdio: "ignore",

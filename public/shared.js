@@ -13,7 +13,7 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = factory(readManifestPorts());
   } else {
-    root.PNDS = factory(readConfigPorts());
+    root.PNDS = factory(readConfig());
   }
 })(typeof self !== "undefined" ? self : this, function (ports) {
   return {
@@ -57,12 +57,12 @@ function readManifestPorts() {
   };
 }
 
-// Browser: read ports from the injected __config.js script.
-function readConfigPorts() {
-  var cfg = window.__PNDS_PORTS__;
+// Browser: read the injected __config.js script.
+function readConfig() {
+  var cfg = window.__PNDS_CONFIG__;
   if (!cfg) {
     throw new Error(
-      "__PNDS_PORTS__ not set — ensure __config.js is loaded before shared.js",
+      "__PNDS_CONFIG__ not set — ensure __config.js is loaded before shared.js",
     );
   }
   return cfg;
