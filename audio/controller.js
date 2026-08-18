@@ -17,7 +17,7 @@ const { AudioEngine } = require("../lib/audio-engine");
 const { oscFloat } = require("../lib/osc-transport");
 
 const VALID_PLAYERS = new Set([1, 2, 3]);
-const SYNTH_NAME = "inarticulateIII";
+const SYNTH_NAME = "inarticulate-iii";
 const GROUP_ID = 1000;
 const SYNTH_NODE_ID = GROUP_ID + 1;
 const ROOT_GROUP_ID = 0;

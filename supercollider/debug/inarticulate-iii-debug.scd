@@ -171,7 +171,7 @@ Server.default = s;
 // ------------------------------------------------------------
 
 ~pnds[\synthDef] = SynthDef(
-    \inarticulateIII,
+    'inarticulate-iii',
     {
         |
         out = 0,
@@ -954,7 +954,7 @@ s.waitForBoot {
         // ----------------------------------------------------
 
         ~pnds[\synth] = Synth(
-            \inarticulateIII,
+            'inarticulate-iii',
             [
                 \out, 0,
 

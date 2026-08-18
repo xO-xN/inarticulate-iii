@@ -225,7 +225,7 @@ Internal 模式正常启动时的返回示例：
 ## 音频约定
 
 - SynthDef 文件名：`inarticulate-iii.scsyndef`
-- SynthDef 内部名称：`inarticulateIII`
+- SynthDef 内部名称：`inarticulate-iii`（契约：符号名 = 产物文件名 = manifest 引用）
 - Internal group ID：`1000`
 - Internal synth node ID：`1001`
 - 裸 `scsynth` 的 root group 是 `0`。不要把项目 group 挂到 group `1`，后者通常由 `sclang` 客户端创建，在裸 scsynth 中不存在。

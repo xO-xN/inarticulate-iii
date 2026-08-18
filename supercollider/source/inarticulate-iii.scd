@@ -1,5 +1,14 @@
+// PNDS Inarticulate III — SynthDef 源码（唯一事实源）。
+//
+// 命名契约：SynthDef 符号名 = 产物文件名 = manifest 引用（'inarticulate-iii'；
+// 带连字符的名字在 sclang 中须写作 'like-this' 引号符号形式）。源文件结尾的
+// .add 把定义注册进 sclang，PNDS App 的 Compile SynthDef 依赖它写出
+// supercollider/synthdefs/inarticulate-iii.scsyndef。
+
+// ~pnds 在独立运行此文件时可能尚未初始化（CLI/新 IDE session），先兜底创建。
+if(~pnds.isNil) { ~pnds = () };
 ~pnds[\synthDef] = SynthDef(
-    \inarticulateIII,
+    'inarticulate-iii',
     {
         |
         out = 0,
@@ -759,4 +768,4 @@
             )
         );
     }
-);
+).add;

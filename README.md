@@ -227,7 +227,7 @@ On success:
 ## Audio Conventions
 
 - SynthDef file name: `inarticulate-iii.scsyndef`
-- SynthDef internal name: `inarticulateIII`
+- SynthDef internal name: `inarticulate-iii` (contract: def name = artifact file name = manifest reference)
 - Internal group ID: `1000`
 - Internal synth node ID: `1001`
 - The root group of a bare `scsynth` is `0`. Do not attach the project group to group `1`; that group is normally created by an `sclang` client and does not exist in a bare scsynth.

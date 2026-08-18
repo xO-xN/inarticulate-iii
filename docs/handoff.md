@@ -36,7 +36,7 @@ Internal 启动过程：
 3. `AudioController` 向 scsynth 发 `/status`；
 4. 用 `/d_load` 加载 `supercollider/synthdefs/inarticulate-iii.scsyndef`；
 5. 在裸 scsynth root group `0` 下创建项目 group `1000`；
-6. 在 group `1000` 中创建 synth node `1001`，SynthDef 名为 `inarticulateIII`，`out` 取自 `PNDS_AUDIO_OUTPUT_BUS`（缺失时为 `0`）；
+6. 在 group `1000` 中创建 synth node `1001`，SynthDef 名为 `inarticulate-iii`，`out` 取自 `PNDS_AUDIO_OUTPUT_BUS`（缺失时为 `0`）；
 7. 用 `/s_get` 验证 node `1001` 的 `master` control 确实存在；
 8. 浏览器事件经 Node 转换为 `/n_set`。
 
@@ -160,7 +160,7 @@ audioController.stop();
 - `supercollider/debug/inarticulate-iii-debug.scd`：sclang 的本地 External OSC debug bridge；
 - `supercollider/synthdefs/inarticulate-iii.scsyndef`：Internal runtime 实际加载的已编译文件。
 
-用户已手动生成并确认 `.scsyndef` 可用。**不要把“让 `.scd` 自动由 sclang 编译”当作当前任务。** 如需重新生成 artifact，必须确保生成的 SynthDef 内部名称仍为 `inarticulateIII`。
+如需重新生成 artifact，用 PNDS App → Settings → Developer Tools → Compile SynthDef（`.scd` 源码是唯一事实源；契约：SynthDef 符号名 = 产物文件名 = manifest 引用，均为 `inarticulate-iii`）。
 
 ## 4. 核心运行约定
 
@@ -211,7 +211,7 @@ App 还会注入 `PNDS_AUDIO_OUTPUT_CHANNELS=2`。V1 固定立体声，本项目
 | 项目 | 值 |
 | --- | --- |
 | SynthDef 文件 | `supercollider/synthdefs/inarticulate-iii.scsyndef` |
-| SynthDef 内部名称 | `inarticulateIII` |
+| SynthDef 内部名称 | `inarticulate-iii` |
 | group ID | `1000` |
 | synth node ID | `1001` |
 | bare scsynth root group | `0` |
