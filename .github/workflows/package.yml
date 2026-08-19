@@ -1,11 +1,15 @@
 name: Package release
 
-# PNDS App never runs an install step during a performance, so a released score
-# project has to ship its production dependencies already installed.
+# Releases ship as .pnds — the PNDS transport container (PNDS App repo,
+# docs/PNDS_PROJECT_BUNDLE_SPECIFICATION.md): a zip with exactly one root
+# directory holding the runnable project (production deps installed, no
+# npm at the venue) plus a top-level pnds-bundle.json. The App installs a
+# .pnds directly (double-click / ⌘O / drag); nobody unzips anything.
 #
-# The bundle is assembled from an explicit ALLOWLIST rather than by excluding
-# unwanted paths: anything not named below (handoff notes, tests, SuperCollider
-# sources, CI config) stays out of the performance bundle by construction.
+# Assembly follows the spec's exclusion list (§3.2): everything in the
+# repo except .git*, .DS_Store and the root docs/ and test/ directories.
+# That matches what the App's own packer produces for this work,
+# .scd sources and debug bridges included.
 
 on:
   push:
@@ -13,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to package (e.g. v1.0.0)'
+        description: 'Version tag to package (e.g. v1.2.0)'
         required: true
         type: string
 
@@ -36,15 +40,41 @@ jobs:
       - name: Install production dependencies
         run: npm ci --omit=dev
 
-      - name: Assemble runnable project bundle
+      - name: Assemble the project directory (spec §3.2 exclusion list)
         run: |
-          mkdir -p "$BUNDLE/supercollider"
-          cp manifest.json package.json server.js "$BUNDLE/"
-          cp -R lib audio public node_modules "$BUNDLE/"
-          cp -R supercollider/synthdefs "$BUNDLE/supercollider/"
-          cp .github/bundle/README.md "$BUNDLE/README.md"
-          find "$BUNDLE" -name '.DS_Store' -delete
+          mkdir -p dist
+          # Leading '/' anchors docs/ and test/ to the repo root — nested
+          # directories of the same name are none of the spec's business.
+          rsync -a ./ "$BUNDLE/" \
+            --exclude='/.git*' --exclude='.DS_Store' \
+            --exclude='/docs/' --exclude='/test/' --exclude='/dist/'
           find "$BUNDLE" -name '.lh' -type d -prune -exec rm -rf {} +
+          node -e '
+            const manifest = require("./manifest.json");
+            if (manifest.name !== "Inarticulate III") {
+              throw new Error("root dir name no longer matches manifest name: " + manifest.name);
+            }
+          '
+
+      - name: Write pnds-bundle.json (spec §3.4)
+        run: |
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync(
+              "dist/pnds-bundle.json",
+              JSON.stringify(
+                {
+                  formatVersion: 1,
+                  packedWith: process.env.VERSION,
+                  packedAt: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+                  sourcePlatform: "linux-x86_64",
+                },
+                null,
+                2,
+              ) + "\n",
+            );
+          '
+          cat dist/pnds-bundle.json
 
       - name: Verify bundle contents
         run: |
@@ -59,15 +89,14 @@ jobs:
             }
             console.log(`all ${deps.length} production dependencies present`);
           '
-          for f in PROJECT_HANDSOFF.md test .github .git package-lock.json \
-                   README.zh-CN.md supercollider/source supercollider/dev; do
+          for f in docs test .github .git .gitignore; do
             if [ -e "$BUNDLE/$f" ]; then
-              echo "::error::$f must not be in the performance bundle"
+              echo "::error::$f must not be in the bundle"
               exit 1
             fi
           done
-          echo "--- bundle contents ---"
-          find "$BUNDLE" -maxdepth 2 -not -path '*/node_modules/*' | sort
+          echo "--- bundle contents (top level) ---"
+          find "$BUNDLE" -maxdepth 1 | sort
 
       - name: Smoke-test the bundle
         run: |
@@ -84,10 +113,30 @@ jobs:
           grep -q '"status":"ready"' /tmp/health.json
           kill "$SERVER_PID"
 
-      - name: Create archive
+      - name: Create the .pnds archive (spec §2: one root + bundle metadata)
         run: |
-          cd dist && zip -q -r -X "../Inarticulate-III-${VERSION}.zip" "Inarticulate III"
-          cd .. && ls -lh "Inarticulate-III-${VERSION}.zip"
+          cd dist && zip -q -r -X "../Inarticulate-III-${VERSION}.pnds" "Inarticulate III" pnds-bundle.json
+          cd .. && ls -lh "Inarticulate-III-${VERSION}.pnds"
+
+      - name: Verify the archive layout
+        run: |
+          unzip -Z1 "Inarticulate-III-${VERSION}.pnds" > /tmp/entries.txt
+          node -e '
+            const entries = require("fs").readFileSync("/tmp/entries.txt", "utf8").split("\n").filter(Boolean);
+            const top = new Set(entries.map((e) => e.split("/")[0]));
+            const expected = new Set(["pnds-bundle.json", "Inarticulate III"]);
+            if (top.size !== expected.size || [...top].every((e) => expected.has(e)) === false) {
+              throw new Error("archive top level must be exactly the project root + pnds-bundle.json, got: " + [...top]);
+            }
+            const forbidden = entries.filter((e) =>
+              e.includes(".DS_Store") || e.includes("/.git") || e === ".git" ||
+              e.startsWith("Inarticulate III/docs/") || e.startsWith("Inarticulate III/test/")
+            );
+            if (forbidden.length) {
+              throw new Error("excluded paths leaked into the archive: " + forbidden.join(", "));
+            }
+            console.log(`layout ok: ${entries.length} entries, single root + metadata`);
+          '
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2
@@ -95,44 +144,41 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: Inarticulate III ${{ env.VERSION }}
           draft: true
-          files: Inarticulate-III-*.zip
+          files: Inarticulate-III-*.pnds
           body: |
             A networked digital score for three performers, running on PNDS App.
 
             > [!IMPORTANT]
-            > Download **`Inarticulate-III-${{ env.VERSION }}.zip`** from the Assets below.
+            > Download **`Inarticulate-III-${{ env.VERSION }}.pnds`** from the Assets below.
             >
-            > Do **not** download “Source code (zip)” or “Source code (tar.gz)”, and do not
-            > use the green “Code → Download ZIP” button on the repository page. Those
-            > contain the source only, without the installed Node.js dependencies, and
-            > PNDS App will refuse to start the project with
-            > `Project dependencies are missing`.
+            > Do **not** download "Source code (zip)" / "Source code (tar.gz)" or use the
+            > green "Code → Download ZIP" button — those contain the source only, without
+            > the installed Node.js dependencies.
             >
-            > The correct archive unzips into a folder named `Inarticulate III`
-            > that contains a `node_modules` directory.
+            > The `.pnds` file is a complete, installable project bundle.
 
             ### How to play
 
             1. Install **PNDS App** (macOS, Apple Silicon):
                https://github.com/xO-xN/PNDS-App/releases/latest
-            2. Unzip `Inarticulate-III-${{ env.VERSION }}.zip` anywhere.
+            2. Open `Inarticulate-III-${{ env.VERSION }}.pnds` with PNDS App
+               (double-click, ⌘O, or drag it onto the window). The App installs
+               the project and lists it.
             3. Put the Mac and three performer devices on the same local network.
-            4. In PNDS App click **Open**, select the unzipped `Inarticulate III` folder,
-               choose **Internal Synth** and an output device, then **Load**.
+            4. Open the project, choose **Internal Synth** and an output device.
             5. Performers scan the QR code on the monitor page and choose Player 1, 2, or 3.
 
             You do not need to install Node.js or SuperCollider — PNDS App bundles both.
 
             See the [README](https://github.com/xO-xN/inarticulate-iii#readme) for details.
 
-            ### Changes in v${VERSION}
+            ### Changes in ${{ env.VERSION }}
 
-            - Refactored file structure: reusable modules in `lib/`, work layer in `audio/controller.js`
-            - Single source of truth: `public/shared.js` for events, player IDs, storage keys
-            - Ports dynamically injected from `manifest.json` via `__config.js`
-            - `process.exit()` removed from shutdown (PNDS App compatibility)
-            - Removed unused dependencies (`node-osc`, `qrcode-terminal`)
-            - Expanded test suite (audio engine, players, integration)
-            - `supercollider/dev/` renamed to `supercollider/debug/`
-            - `PROJECT_HANDSOFF.md` moved to `docs/handoff.md`
-            - All audio semantics, OSC protocol, p5.js visuals unchanged
+            - Distribution is now a `.pnds` bundle — installs directly into PNDS App
+            - Backported the finalized PNDS Template lib core: shutdown-race `stopped`
+              guards, injectable transport for tests, `send(address, args[])` signature,
+              `__PNDS_CONFIG__` injection, guaranteed process exit on SIGTERM
+            - SynthDef unified as `inarticulate-iii` across source, debug bridge and artifact
+            - `/s_get` read-back verifies every `/s_new` actually built its node
+            - Test suite expanded from 4 to 17 (engine fake transport, controller fake
+              engine, integration port guard)
