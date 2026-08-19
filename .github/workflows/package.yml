@@ -45,8 +45,11 @@ jobs:
           mkdir -p dist
           # Leading '/' anchors docs/ and test/ to the repo root — nested
           # directories of the same name are none of the spec's business.
+          # .git* stays unanchored: npm packages ship their own .github/
+          # (FUNDING.yml etc.) and the spec excludes those at any depth,
+          # exactly like the App's own packer.
           rsync -a ./ "$BUNDLE/" \
-            --exclude='/.git*' --exclude='.DS_Store' \
+            --exclude='.git*' --exclude='.DS_Store' \
             --exclude='/docs/' --exclude='/test/' --exclude='/dist/'
           find "$BUNDLE" -name '.lh' -type d -prune -exec rm -rf {} +
           node -e '
