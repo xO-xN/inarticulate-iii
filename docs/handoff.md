@@ -385,7 +385,7 @@ status=ready 后显示 monitor 页面
 
 按定稿模板回改 lib 核心，作品自身的协议与音频语义（选 ID / takeover / 单 synth 三声部耦合）**保持不变**：
 
-- `lib/audio-engine.js` 与模板定稿同源：`stopped` 标志（shutdown 竞态下晚到的命令为 no-op）、`transportFactory` 注入（测试用记录型假传输覆盖 boot 序列与命令编码）、`send(address, args[])` 数组签名（controller 三处调用点已改）。本工程独有并保留：`verifySynthControl()`（`/s_get` 回读验证 `/s_new` 真的建成节点——fire-and-forget 的失败否则不可见）；待模板侧采纳后两文件将完全一致。
+- `lib/audio-engine.js` 与模板定稿同源：`stopped` 标志（shutdown 竞态下晚到的命令为 no-op）、`transportFactory` 注入（测试用记录型假传输覆盖 boot 序列与命令编码）、`send(address, args[])` 数组签名（controller 三处调用点已改）。`verifySynthControl()`（`/s_get` 回读验证 `/s_new` 真的建成节点——fire-and-forget 的失败否则不可见）原为本工程独有，2026-08-19 已回赠模板（其 `addVoice` 在注册 voice 前回读验证）；至此 `lib/audio-engine.js` 两仓字节一致。
 - `lib/lifecycle.js`：shutdown `finally { process.exit() }`——即使有残留 socket/timer 挂住事件循环也保证退出（App 等的是进程退出）。
 - `lib/qr.js`：QR 端点从 server.js 内联抽出为 `qrHandler`（与模板同文件）。
 - `__PNDS_PORTS__` → `__PNDS_CONFIG__`（shared.js 的 `readConfig()`），对齐平台注入约定。
