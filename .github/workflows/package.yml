@@ -113,7 +113,7 @@ jobs:
           grep -q '"status":"ready"' /tmp/health.json
           kill "$SERVER_PID"
 
-      - name: Create the .pnds archive (spec §2: one root + bundle metadata)
+      - name: Create the .pnds archive (spec §2 — one root plus metadata)
         run: |
           cd dist && zip -q -r -X "../Inarticulate-III-${VERSION}.pnds" "Inarticulate III" pnds-bundle.json
           cd .. && ls -lh "Inarticulate-III-${VERSION}.pnds"
