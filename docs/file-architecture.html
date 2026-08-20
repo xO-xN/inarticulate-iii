@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inarticulate III · 文件系统架构</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-soft:    #7a8399;
+      --color-accent:  #eb6c36;
+      --font-sans:  'Geist', 'PingFang SC', 'Hiragino Sans', 'Noto Sans SC', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', 'Songti SC', 'Noto Serif SC', serif;
+      --font-mono:  'Geist Mono', 'PingFang SC', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1400px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 0.6rem;
+    }
+
+    .subtitle {
+      font-family: var(--font-sans);
+      font-size: 0.92rem;
+      color: var(--color-muted);
+      margin-bottom: 1.75rem;
+    }
+
+    svg { width: 100%; min-width: 1100px; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 0.85fr;
+      gap: 1rem;
+      margin-top: 1.75rem;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(45,49,66,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+
+    .card .eyebrow { margin-bottom: 0.6rem; }
+
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+    .card-header h3 { font-size: 0.95rem; font-weight: 600; color: var(--color-ink); }
+
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .card-dot.coral { background: var(--color-accent); }
+    .card-dot.ink   { background: var(--color-ink); }
+    .card-dot.muted { background: var(--color-soft); }
+
+    .card ul { list-style: none; }
+    .card li {
+      font-size: 0.84rem;
+      line-height: 1.65;
+      color: var(--color-muted);
+      padding-left: 0.9rem;
+      position: relative;
+    }
+    .card li::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0.62em;
+      width: 4px; height: 1px;
+      background: rgba(45,49,66,0.35);
+    }
+    .card code {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-ink);
+    }
+
+    footer {
+      margin-top: 2rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid rgba(45,49,66,0.12);
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.14em;
+      color: var(--color-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">File Architecture · PNDS Score Server</p>
+    <h1>Inarticulate III · 文件系统架构</h1>
+    <p class="subtitle">三位演奏者的网络化数字乐谱 — 触摸经 Socket.IO 汇聚为声音：浏览器页面层（public/）· Node 乐谱服务器（server.js + lib/）· 作品音频层（audio/）· SuperCollider 合成引擎</p>
+
+    <svg viewBox="0 0 1280 816" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="file-arch-title file-arch-desc">
+      <title id="file-arch-title">Inarticulate III 文件系统架构</title>
+      <desc id="file-arch-desc">架构图展示 public 目录的四个浏览器文件、server.js 入口、lib 目录的八个可复用核心模块、audio 目录的作品音频层，以及 supercollider 目录的合成器定义与编译产物之间的调用和数据关系。</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ================= ZONES (painted first) ================= -->
+      <rect x="40" y="56" width="1200" height="144" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="56" y="60" width="116" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="114" y="69" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">PUBLIC · BROWSER</text>
+
+      <rect x="312" y="248" width="464" height="340" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="316" y="252" width="124" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="378" y="261" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">LIB · REUSABLE CORE</text>
+
+      <rect x="816" y="248" width="424" height="284" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="820" y="252" width="136" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="888" y="261" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">SUPERCOLLIDER · SYNTH</text>
+
+      <!-- ================= ARROWS (behind nodes) ================= -->
+      <!-- E1 sketch.js -> server.js : Socket.IO 上行 -->
+      <path d="M 460,184 V 228 Q 460,236 452,236 H 216 Q 208,236 208,248 V 256"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- E3 server.js -> index.html : HTTP 静态分发 -->
+      <path d="M 128,256 V 184"
+            fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <!-- E5 server.js -> audio/controller.js -->
+      <path d="M 160,560 V 648 Q 160,656 168,656 H 312"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- server -> lib col A (require) -->
+      <line x1="260" y1="316" x2="332" y2="316" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="260" y1="392" x2="332" y2="392" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="260" y1="468" x2="332" y2="468" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="260" y1="544" x2="332" y2="544" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- server -> lib col B (require, via inter-column corridor) -->
+      <path d="M 260,352 H 536 Q 544,352 544,344 V 324 Q 544,316 552,316 H 556"
+            fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M 260,428 H 536 Q 544,428 544,420 V 400 Q 544,392 552,392 H 556"
+            fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- E6 controller -> audio-engine -->
+      <path d="M 656,612 V 572"
+            fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <!-- E7 audio-engine -> osc-transport -->
+      <path d="M 656,516 V 496"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- E8 osc-transport -> scsynth : OSC UDP -->
+      <path d="M 756,460 H 788 Q 796,460 796,468 V 648 Q 796,656 804,656 H 828"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- E9 synthdefs -> scsynth : /d_recv load -->
+      <path d="M 924,512 V 612"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <!-- E10 source -> synthdefs : compile (build-time) -->
+      <path d="M 924,384 V 440"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <!-- E11 osc-transport -> debug bridge : external mode (bridges over E10) -->
+      <path d="M 690,440 V 424 Q 690,416 698,416 H 916 a 8,8 0 0,1 16,0 H 1124 Q 1132,416 1132,408 V 384"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+      <!-- ================= ARROW LABELS (masks, painted before nodes) ================= -->
+      <rect x="300" y="218" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="332" y="227" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SOCKET.IO</text>
+
+      <rect x="138" y="210" width="38" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="157" y="219" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HTTP</text>
+
+      <rect x="170" y="584" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="206" y="593" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">GATE·XY·PAIR</text>
+
+      <rect x="666" y="576" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="698" y="585" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ENGINE API</text>
+
+      <rect x="806" y="524" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="836" y="533" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OSC · UDP</text>
+
+      <rect x="934" y="550" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="962" y="559" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">/D_RECV</text>
+
+      <rect x="934" y="396" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="964" y="405" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPILE</text>
+
+      <rect x="768" y="398" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="798" y="407" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">/P* :57120</text>
+
+      <!-- ================= NODES ================= -->
+
+      <!-- ===== public/ : index.html ===== -->
+      <rect x="60" y="96" width="272" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="60" y="96" width="272" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="68" y="102" width="32" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.40)" stroke-width="0.8"/>
+      <text x="84" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAGE</text>
+      <text x="76" y="130" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">index.html</text>
+      <text x="76" y="148" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">单页双角色：演奏页 + 监视页</text>
+      <text x="76" y="164" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">左：演奏规则 · 右：OSC 实时流</text>
+      <text x="76" y="177" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">:6868 演奏 · :6869 监视 · /qr 扫码加入</text>
+
+      <!-- ===== public/ : sketch.js ===== -->
+      <rect x="356" y="96" width="272" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="356" y="96" width="272" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="364" y="102" width="20" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.40)" stroke-width="0.8"/>
+      <text x="374" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">P5</text>
+      <text x="372" y="130" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">sketch.js</text>
+      <text x="372" y="148" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">触点与连线交互 · 乐谱曲线绘制</text>
+      <text x="372" y="164" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">emit: point · lineStroke · selectId</text>
+      <text x="372" y="177" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">on: pointSend · oscActivity · clientCount</text>
+
+      <!-- ===== public/ : shared.js ===== -->
+      <rect x="652" y="96" width="272" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="652" y="96" width="272" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="660" y="102" width="56" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.40)" stroke-width="0.8"/>
+      <text x="688" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CONTRACT</text>
+      <text x="668" y="130" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">shared.js</text>
+      <text x="668" y="148" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">事件名 · 玩家 ID · 存储 key 唯一事实源</text>
+      <text x="668" y="164" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">Node 与浏览器同时 require</text>
+      <text x="668" y="177" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">端口源自 manifest.json</text>
+
+      <!-- ===== public/ : style.css ===== -->
+      <rect x="948" y="96" width="272" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="948" y="96" width="272" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="956" y="102" width="36" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.40)" stroke-width="0.8"/>
+      <text x="974" y="111" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STYLE</text>
+      <text x="964" y="130" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">style.css</text>
+      <text x="964" y="148" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">版面与监视页面板样式（由 index 引入）</text>
+      <text x="964" y="164" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">libraries/p5.min.js — 离线渲染引擎</text>
+      <text x="964" y="177" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">assets/p1-3curve.png — 乐谱曲线</text>
+
+      <!-- ===== server.js (entry) ===== -->
+      <rect x="60" y="256" width="200" height="304" rx="6" fill="#f5f5f5"/>
+      <rect x="60" y="256" width="200" height="304" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="68" y="262" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="86" y="271" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTRY</text>
+      <text x="76" y="292" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">server.js</text>
+      <text x="76" y="310" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">乐谱服务器入口 · 总编排</text>
+      <line x1="76" y1="324" x2="244" y2="324" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="76" y="344" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· 双端口静态服务</text>
+      <text x="76" y="364" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">Express ×2 :6868 / :6869</text>
+      <text x="76" y="384" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· Socket.IO 实时链路</text>
+      <text x="76" y="404" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">point / lineStroke 事件转发</text>
+      <text x="76" y="424" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· 玩家认领状态机</text>
+      <text x="76" y="444" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">claim / takeover / reject</text>
+      <text x="76" y="464" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· 广播视觉状态</text>
+      <text x="76" y="484" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">pointSend · oscActivity</text>
+      <text x="76" y="504" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· require lib/ 全部模块</text>
+      <text x="76" y="524" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">· SIGINT / SIGTERM 关停</text>
+      <rect x="76" y="536" width="168" height="12" rx="2" fill="rgba(45,49,66,0.04)"/>
+      <text x="160" y="545" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">node server.js --audio-mode internal</text>
+
+      <!-- ===== lib/ col A ===== -->
+      <rect x="332" y="288" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="332" y="288" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="340" y="294" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="352" y="303" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CFG</text>
+      <text x="348" y="321" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">config.js</text>
+      <text x="348" y="336" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">配置解析：manifest · 端口 · 音频模式</text>
+
+      <rect x="332" y="364" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="332" y="364" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="340" y="370" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="352" y="379" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">NET</text>
+      <text x="348" y="397" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">network.js</text>
+      <text x="348" y="412" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">解析局域网 IPv4（PNDS_HOST_IP）</text>
+
+      <rect x="332" y="440" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="332" y="440" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="340" y="446" width="20" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="350" y="455" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">QR</text>
+      <text x="348" y="473" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">qr.js</text>
+      <text x="348" y="488" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">/qr 二维码 PNG（扫码进入演奏页）</text>
+
+      <rect x="332" y="516" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="332" y="516" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="340" y="522" width="40" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="360" y="531" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HEALTH</text>
+      <text x="348" y="549" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">health.js</text>
+      <text x="348" y="564" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">/__pnds/health 就绪状态上报</text>
+
+      <!-- ===== lib/ col B ===== -->
+      <rect x="556" y="288" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="556" y="288" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="564" y="294" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="590" y="303" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IDENTITY</text>
+      <text x="572" y="321" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">players.js</text>
+      <text x="572" y="336" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">玩家认领 · 接管 · 拒绝（claim token）</text>
+
+      <rect x="556" y="364" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="556" y="364" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="564" y="370" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="580" y="379" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXIT</text>
+      <text x="572" y="397" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">lifecycle.js</text>
+      <text x="572" y="412" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">优雅关停：释放音频与双 HTTP 端口</text>
+
+      <rect x="556" y="440" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="556" y="440" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="564" y="446" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="578" y="455" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OSC</text>
+      <text x="572" y="473" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">osc-transport.js</text>
+      <text x="572" y="488" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">OSC over UDP：dgram · osc-min · 应答</text>
+
+      <rect x="556" y="516" width="200" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="556" y="516" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="564" y="522" width="40" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="584" y="531" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+      <text x="572" y="549" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace">audio-engine.js</text>
+      <text x="572" y="564" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">scsynth 会话：/g_new · /s_new · /n_set</text>
+
+      <!-- ===== supercollider/ : source ===== -->
+      <rect x="832" y="312" width="184" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="832" y="312" width="184" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="840" y="318" width="60" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="870" y="327" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SYNTHDEF</text>
+      <text x="848" y="345" fill="#2d3142" font-size="10" font-weight="600" font-family="'Geist Mono', monospace">inarticulate-iii.scd</text>
+      <text x="848" y="360" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">三声部 FM 互调 · PitchShift</text>
+      <text x="848" y="374" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">supercollider/source/ · 唯一事实源</text>
+
+      <!-- ===== supercollider/ : synthdefs (store) ===== -->
+      <rect x="832" y="440" width="184" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="832" y="440" width="184" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="840" y="446" width="52" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.50)" stroke-width="0.8"/>
+      <text x="866" y="455" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ARTIFACT</text>
+      <text x="848" y="473" fill="#2d3142" font-size="10" font-weight="600" font-family="'Geist Mono', monospace">inarticulate-iii.scsyndef</text>
+      <text x="848" y="488" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">编译产物 · 启动时加载</text>
+      <text x="848" y="502" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">supercollider/synthdefs/</text>
+
+      <!-- ===== supercollider/ : debug (optional) ===== -->
+      <rect x="1040" y="312" width="184" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="1040" y="312" width="184" height="72" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="1048" y="318" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="1066" y="327" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DEBUG</text>
+      <text x="1056" y="345" fill="#2d3142" font-size="10" font-weight="600" font-family="'Geist Mono', monospace">inarticulate-iii-debug.scd</text>
+      <text x="1056" y="360" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">sclang 调试桥 · 仅供开发</text>
+      <text x="1056" y="374" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">supercollider/debug/ · :57120</text>
+
+      <!-- ===== audio/controller.js (focal) ===== -->
+      <rect x="312" y="612" width="444" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="312" y="612" width="444" height="88" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="320" y="618" width="68" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.50)" stroke-width="0.8"/>
+      <text x="354" y="627" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORK LAYER</text>
+      <text x="328" y="647" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">audio/controller.js</text>
+      <text x="328" y="665" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">作品音频语义 — 触摸到声音的映射（创作者主要编辑此文件）</text>
+      <text x="328" y="684" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">Internal: /n_set 直控 node 1001 · External: 作品自有 /p* 协议</text>
+
+      <!-- ===== scsynth (external process) ===== -->
+      <rect x="828" y="612" width="192" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="828" y="612" width="192" height="88" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="836" y="618" width="48" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="860" y="627" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PROCESS</text>
+      <text x="844" y="647" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist Mono', monospace">scsynth</text>
+      <text x="844" y="665" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC','Hiragino Sans',sans-serif">声音合成引擎（宿主进程所有）</text>
+      <text x="844" y="684" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace">UDP :57110 · group 1000 · node 1001</text>
+
+      <!-- ================= LEGEND (bottom strip) ================= -->
+      <line x1="40" y1="748" x2="1240" y2="748" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="768" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+
+      <rect x="120" y="776" width="14" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <text x="142" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">输入 · 浏览器页面</text>
+
+      <rect x="280" y="776" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="302" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">后端 · 服务器与 lib 核心模块</text>
+
+      <rect x="496" y="776" width="14" height="10" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="518" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">焦点 · 作品层</text>
+
+      <rect x="624" y="776" width="14" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="646" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">产物 · 存储</text>
+
+      <rect x="744" y="776" width="14" height="10" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="766" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">外部进程</text>
+
+      <line x1="852" y1="781" x2="880" y2="781" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="890" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">构建期 / 开发用</text>
+
+      <line x1="1012" y1="781" x2="1040" y2="781" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="1050" y="785" fill="#4f5d75" font-size="10" font-family="'Geist','PingFang SC',sans-serif">HTTP</text>
+    </svg>
+
+    <div class="cards">
+      <div class="card">
+        <p class="eyebrow">DATA FLOW</p>
+        <div class="card-header"><span class="card-dot coral"></span><h3>触摸 → 声音主链路</h3></div>
+        <ul>
+          <li>演奏者触摸 <code>sketch.js</code> 发出 <code>point</code> / <code>lineStroke</code>，经 Socket.IO 到达 <code>server.js</code></li>
+          <li>服务器转发为 <code>setPlayerGate / setPlayerPosition / setPairStroke</code> 调用 <code>audio/controller.js</code></li>
+          <li>Internal 模式：<code>audio-engine.js</code> 经 <code>/n_set</code> 直控单合成器节点 1001（三声部互调）</li>
+          <li>External 模式：<code>osc-transport.js</code> 发送作品自有 <code>/p*</code> 协议到任意 OSC 目标</li>
+        </ul>
+      </div>
+      <div class="card">
+        <p class="eyebrow">CONTRACT</p>
+        <div class="card-header"><span class="card-dot ink"></span><h3>双端共享契约</h3></div>
+        <ul>
+          <li><code>shared.js</code> 同时被浏览器与 Node require：事件名、玩家 ID、存储 key 只定义一次</li>
+          <li>端口唯一事实源是 <code>manifest.json</code>，经 <code>__config.js</code> 注入浏览器</li>
+          <li>玩家认领通过 claim token 支持断线重连与设备接管</li>
+        </ul>
+      </div>
+      <div class="card">
+        <p class="eyebrow">RUNTIME BOUNDARY</p>
+        <div class="card-header"><span class="card-dot muted"></span><h3>运行时边界</h3></div>
+        <ul>
+          <li><code>scsynth</code> 由宿主（PNDS App 或终端）拥有，服务器只在其上创建 group 1000 / node 1001</li>
+          <li><code>.scsyndef</code> 由 <code>.scd</code> 源码编译，运行时只加载编译产物，从不启动 sclang</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer>
+      <span>INARTICULATE III · PNDS V1 REFERENCE IMPLEMENTATION</span>
+      <span>FILE ARCHITECTURE · 2026-08-19</span>
+    </footer>
+  </div>
+</body>
+</html>
