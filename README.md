@@ -25,23 +25,19 @@ You do **not** need to install Node.js or SuperCollider. PNDS App ships with bot
 ### 2. Download this work
 
 > [!IMPORTANT]
-> Download `Inarticulate-III-<version>.zip` from the [releases page](https://github.com/xO-xN/inarticulate-iii/releases/latest).
+> Download `Inarticulate-III-v<version>.pnds` from the [releases page](https://github.com/xO-xN/inarticulate-iii/releases/latest).
 >
 > Do **not** download “Source code (zip)” or “Source code (tar.gz)” — GitHub attaches
 > those to every release automatically — and do not use the green “Code → Download ZIP”
 > button. They contain the source only, without the installed Node.js dependencies, and
 > PNDS App will refuse to start the project with `Project dependencies are missing`.
->
-> The correct archive unzips into a folder named `Inarticulate III` that contains a
-> `node_modules` directory. If your folder is named something like
-> `xO-xN-inarticulate-iii-8ef57e7`, you downloaded the source archive.
 
-Unzip the archive anywhere you like. You get a single folder named `Inarticulate III` that is ready to run offline.
+A `.pnds` file is the packaged, ready-to-run form of this work, dependencies included. You never unzip it — PNDS App installs it for you in the next step.
 
 ### 3. Open and perform
 
 1. Put the Mac running PNDS App on a local network — a wired connection is recommended. Connect the three performer devices (phones or tablets) to the same network.
-2. Launch PNDS App, click **Open**, and select the unzipped `Inarticulate III` folder.
+2. Launch PNDS App, then double-click the downloaded `.pnds` file (or drop it on the PNDS App window, or pick it in the ⌘O dialog). PNDS App verifies, installs, and opens the work like any project.
 3. Choose **Internal Synth** as the audio mode and pick your output device, then click **Load**.
 4. The monitor/conductor page appears with a QR code. Performers scan it to reach the performer page and choose Player 1, 2, or 3.
 

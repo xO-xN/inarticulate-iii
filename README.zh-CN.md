@@ -25,21 +25,18 @@
 ### 2. 下载本作品
 
 > [!IMPORTANT]
-> 请从 [releases 页面](https://github.com/xO-xN/inarticulate-iii/releases/latest)下载 `Inarticulate-III-<版本号>.zip`。
+> 请从 [releases 页面](https://github.com/xO-xN/inarticulate-iii/releases/latest)下载 `Inarticulate-III-v<版本号>.pnds`。
 >
 > **不要**下载「Source code (zip)」或「Source code (tar.gz)」——GitHub 会自动给每个 release
 > 挂上这两个文件——也不要使用仓库页面上绿色的「Code → Download ZIP」按钮。它们只包含源码，
 > 不含已安装的依赖，PNDS App 会拒绝启动并提示 `Project dependencies are missing`。
->
-> 正确的压缩包解压后是一个名为 `Inarticulate III` 的文件夹，其中含有 `node_modules` 目录。
-> 如果你解压出的文件夹叫 `xO-xN-inarticulate-iii-8ef57e7` 之类的名字，说明下载的是源码包。
 
-解压到任意位置，你会得到一个名为 `Inarticulate III` 的文件夹，可离线直接运行。
+`.pnds` 文件就是本作品打包好、可直接运行的形态，依赖已包含在内。你不需要解压它——下一步由 PNDS App 直接安装。
 
 ### 3. 打开并演奏
 
 1. 将运行 PNDS App 的 Mac 接入本地网络，建议使用有线连接。三台演奏者设备（手机或平板）连接到同一网络。
-2. 启动 PNDS App，点击 **Open**，选择解压出的 `Inarticulate III` 文件夹。
+2. 启动 PNDS App，双击下载的 `.pnds` 文件（或把它拖到 PNDS App 窗口上，或在 ⌘O 对话框中选中它）。PNDS App 会校验、安装并像普通工程一样打开本作品。
 3. 音频模式选择 **Internal Synth**，选定输出设备，然后点击 **Load**。
 4. 监视/指挥页面出现，其中包含二维码。演奏者扫码进入演奏者页面，各自选择 Player 1、2 或 3。
 
