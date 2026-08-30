@@ -150,3 +150,104 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   const monitorHtml = await monitorResponse.text();
   assert.match(monitorHtml, /sketch\.js/);
 });
+
+test("shutdown: SIGTERM completes promptly with live clients still connected", async (t) => {
+  // The previous test's teardown signals its server but does not wait
+  // for the exit; give the ports a moment before claiming them.
+  const portFree = (port) =>
+    new Promise((resolve) => {
+      const probe = net.connect({ port, host: "127.0.0.1" });
+
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.once("error", () => resolve(true));
+    });
+
+  const portsFree = async () =>
+    (await portFree(6868)) && (await portFree(6869));
+
+  const deadline = Date.now() + 5000;
+
+  while (Date.now() < deadline && !(await portsFree())) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  assert.ok(
+    await portsFree(),
+    "the previous test's server never released the ports",
+  );
+
+  const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
+    cwd: PROJECT_ROOT,
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  t.after(() => server.kill("SIGKILL"));
+
+  await waitForHealthReady();
+
+  // The worst case the App leaves behind on stop: a seated player
+  // (websocket), a polling-only client (a phone on a weak network), and
+  // raw keep-alive HTTP connections on both ports (the monitor webview's
+  // page stays mounted through the stop fade).
+  const player = io(PERFORMER_URL, { reconnection: false });
+  t.after(() => player.close());
+
+  await new Promise((resolve) => player.once("connect", resolve));
+
+  const playerConfirm = await new Promise((resolve) => {
+    player.once(EVENTS.idConfirmation, resolve);
+    player.emit(EVENTS.selectId, { userType: "1" });
+  });
+
+  assert.equal(playerConfirm.status, "accepted");
+
+  const polling = io(PERFORMER_URL, {
+    transports: ["polling"],
+    reconnection: false,
+  });
+
+  await new Promise((resolve) => polling.once("connect", resolve));
+  t.after(() => polling.close());
+
+  const raw = [];
+
+  for (const port of [6868, 6869]) {
+    const socket = net.connect({ port, host: "127.0.0.1" });
+
+    await new Promise((resolve) => socket.once("connect", resolve));
+    socket.write(
+      "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n",
+    );
+    raw.push(socket);
+  }
+  t.after(() => raw.forEach((s) => s.destroy()));
+
+  const startedAt = Date.now();
+
+  server.kill("SIGTERM");
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("server did not exit within 2 s of SIGTERM")),
+      2000,
+    );
+
+    server.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+
+  const elapsed = Date.now() - startedAt;
+
+  // The host's kill window is 5 s (then SIGKILL, and the operator stares
+  // at a blank stop cover meanwhile): the server must be long gone
+  // before that window closes.
+  assert.equal(exitCode, 0, "graceful shutdown completes");
+  assert.ok(
+    elapsed < 1000,
+    `shutdown took ${elapsed} ms with live clients still connected`,
+  );
+});

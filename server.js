@@ -542,10 +542,28 @@ attachShutdown({
       }
     }
 
+    // Drop every connected client first — players AND the monitor page's
+    // observer sockets. io.close() waits for clients to take their
+    // disconnect; a phone on a weak network must not outlive the host's
+    // kill window. Per-step elapsed below: a slow step found in the wild
+    // is diagnosable from the output tail alone.
+    const t0 = Date.now();
+    io.disconnectSockets(true);
     io.close();
+    const tSockets = Date.now() - t0;
+
+    const t1 = Date.now();
     await projectAudio.stop();
+    const tAudio = Date.now() - t1;
+
+    const t2 = Date.now();
     await closeHttpServer(server);
     await closeHttpServer(monitorServer);
+    const tHttp = Date.now() - t2;
+
+    console.log(
+      `[shutdown] steps: sockets ${tSockets}ms, audio ${tAudio}ms, http ${tHttp}ms`,
+    );
   },
 });
 

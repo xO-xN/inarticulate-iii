@@ -251,11 +251,13 @@ GET /__pnds/health
 
 1. 标记 stopping（health）；
 2. 清除 release retry timers；
-3. 关闭 Socket.IO；
+3. `io.disconnectSockets(true)` 先强断所有已连接客户端，再 `io.close()`——不等任何客户端配合领取 disconnect（弱网手机拖不过宿主的 kill window）；
 4. 调用 `projectAudio.stop()`，释放 synth / group 与 UDP socket；
-5. 关闭两个 HTTP server。
+5. 关闭两个 HTTP server——`close()` 后紧跟 `closeAllConnections()`，残余的 keep-alive / 长轮询连接一并强断。
 
-注意：`lib/lifecycle.js` 的 `process.exit()` **已移除**。shutdown 完成后不再强制退出 Node 进程——这允许 PNDS App 的 Node 托管层在清理完成后自行决定进程生命周期。
+每步耗时打点（`[shutdown] steps: sockets Xms, audio Xms, http Xms`），供现场从输出尾部直接定位慢步骤。回归测试覆盖最坏情形：websocket 演奏者 + polling 弱网客户端 + 双端口 keep-alive 同时在线时，SIGTERM 一秒内 exit 0。
+
+注意：`lib/lifecycle.js` 的 shutdown 完成后强制 `process.exit()`——即使有残留 socket / 定时器挂着事件循环也保证退出（PNDS App 等的是进程退出，不是事件循环安静）。
 
 ## 6. 手动运行与验证
 
