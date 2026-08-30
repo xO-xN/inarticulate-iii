@@ -1,6 +1,6 @@
 {
   "name": "inarticulate-iii",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "A networked digital score for three performers.",
   "main": "server.js",

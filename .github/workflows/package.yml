@@ -177,11 +177,11 @@ jobs:
 
             ### Changes in ${{ env.VERSION }}
 
-            - Distribution is now a `.pnds` bundle — installs directly into PNDS App
-            - Backported the finalized PNDS Template lib core: shutdown-race `stopped`
-              guards, injectable transport for tests, `send(address, args[])` signature,
-              `__PNDS_CONFIG__` injection, guaranteed process exit on SIGTERM
-            - SynthDef unified as `inarticulate-iii` across source, debug bridge and artifact
-            - `/s_get` read-back verifies every `/s_new` actually built its node
-            - Test suite expanded from 4 to 17 (engine fake transport, controller fake
-              engine, integration port guard)
+            - Shutdown hardening ported from the PNDS Template core: live connections
+              are force-closed once the server stops listening, and every client is
+              disconnected before Socket.IO closes — a phone on a weak network can no
+              longer hold the stop sequence past the App's kill window (the occasional
+              5–10 s blank stop cover when closing the project)
+            - Shutdown now logs per-step timing (`[shutdown] steps: …`) for field diagnosis
+            - Regression test added: SIGTERM with live clients connected (websocket
+              player, polling client, keep-alive on both ports) exits cleanly within a second
