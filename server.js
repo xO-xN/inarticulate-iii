@@ -8,6 +8,7 @@
 // - broadcasts visual state and OSC activity to connected clients
 // - marks venue projection spectators (?surface=venue) at handshake:
 //   read-only, never counted as present, never allowed to claim
+// - operator-toggleable info panels for the projection surface
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
@@ -176,6 +177,11 @@ startAudio();
 let nextTempId = 1;
 const playerAssignments = new Map();
 
+// Whether the projection surface (?surface=venue) currently shows the
+// monitor page's side panels (performance intro + OSC table). Operator
+// command, server-held so a projection joining late inherits it.
+let venuePanelsVisible = false;
+
 function isPlayerId(value) {
   return VALID_PLAYER_ID_SET.has(String(value));
 }
@@ -223,11 +229,23 @@ function broadcastClientCount() {
   io.emit(EVENTS.clientCount, count);
 }
 
+function sendVenuePanelsTo(sock) {
+  sock.emit(EVENTS.venuePanels, { visible: venuePanelsVisible });
+}
+
+function broadcastVenuePanels() {
+  for (const sock of io.sockets.sockets.values()) {
+    if (sock.userType === "0" || sock.isVenue) {
+      sendVenuePanelsTo(sock);
+    }
+  }
+}
+
 function broadcastOscActivity(address, values) {
   const payload = { address, values };
 
   for (const sock of io.sockets.sockets.values()) {
-    if (sock.userType === "0") {
+    if (sock.userType === "0" || (sock.isVenue && venuePanelsVisible)) {
       sock.emit(EVENTS.oscActivity, payload);
     }
   }
@@ -248,6 +266,12 @@ io.on("connection", (socket) => {
 
   socket.emit(EVENTS.clientId, socket.clientId);
   broadcastClientCount();
+
+  // A projection joining (or reconnecting) mid-state must not miss the
+  // panels decision made before it arrived.
+  if (socket.isVenue) {
+    sendVenuePanelsTo(socket);
+  }
 
   // ---- Player ID selection ----
 
@@ -323,6 +347,9 @@ io.on("connection", (socket) => {
     if (userType !== "0") {
       socket.emit(EVENTS.clientId, socket.clientId);
       broadcastClientCount();
+    } else {
+      // Sync the operator's toggle button with the current state.
+      sendVenuePanelsTo(socket);
     }
   });
 
@@ -508,6 +535,24 @@ io.on("connection", (socket) => {
     }
 
     broadcastClientCount();
+  });
+
+  // ---- Projection info panels (operator command) ----
+
+  socket.on(EVENTS.setVenuePanels, (data) => {
+    if (socket.userType !== "0") {
+      return;
+    }
+
+    const visible = Boolean(data && data.visible);
+
+    // No idempotence short-cut: always broadcasting keeps a freshly
+    // reloaded operator's button honest even when the state it asked for
+    // already held.
+    venuePanelsVisible = visible;
+    console.log(`[operator] venue info panels ${visible ? "on" : "off"}`);
+
+    broadcastVenuePanels();
   });
 
   // ---- Disconnect ----

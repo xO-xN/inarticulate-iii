@@ -125,7 +125,7 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
 - 服务 performer 与 monitor 页面；
 - Socket.IO player ID、点位和连线事件；
 - performer 身份恢复：浏览器持久化 player ID 与 claim token；同一 token 的新 socket 接管旧 socket，不同 token 抢同一 ID 会被拒绝；
-- 向 monitor 广播作品控制流活动（`oscActivity`），供右侧 `/p*` 地址观察器显示最后一次数据；
+- 向 monitor 广播作品控制流活动（`oscActivity`），供右侧 `/p*` 地址观察器显示最后一次数据；操作台可用左下 ⓘ 按钮遥控投影端（`?surface=venue`）显示同样的左右面板，面板开启时 `oscActivity` 同样流向投影端；
 - 创建并调用 `AudioController`；
 - 提供 `/qr` 与 `GET /__pnds/health`；
 - 处理 `SIGINT` / `SIGTERM` 并释放本项目资源。

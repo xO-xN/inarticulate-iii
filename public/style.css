@@ -23,7 +23,8 @@ body {
     display: none;
 }
 
-body.monitor-mode .monitor-panel {
+body.monitor-mode .monitor-panel,
+body.venue-panels .monitor-panel {
     position: fixed;
     top: 28px;
     bottom: 28px;
@@ -162,7 +163,8 @@ body.monitor-mode .monitor-panel {
 }
 
 @media (max-width: 900px) {
-    body.monitor-mode .monitor-panel {
+    body.monitor-mode .monitor-panel,
+    body.venue-panels .monitor-panel {
         width: 21vw;
     }
 
@@ -237,7 +239,8 @@ canvas {
 }
 /* QR Toggle */
 #qr-toggle,
-#reset-roles {
+#reset-roles,
+#venue-panels {
     position: fixed;
     bottom: 60px;
     z-index: 20;
@@ -264,13 +267,25 @@ canvas {
 #reset-roles {
     left: 80px;
 }
+#venue-panels {
+    left: 140px;
+}
 body.monitor-mode #qr-toggle,
-body.monitor-mode #reset-roles {
+body.monitor-mode #reset-roles,
+body.monitor-mode #venue-panels {
     display: flex;
 }
 #qr-toggle:active,
-#reset-roles:active {
+#reset-roles:active,
+#venue-panels:active {
     transform: scale(0.9);
+}
+
+/* Info panels toggled ON on the projection screen */
+#venue-panels.active {
+    border-color: rgba(229, 229, 229, 0.65);
+    background: rgba(229, 229, 229, 0.16);
+    color: #ffffff;
 }
 
 /* --- Unified pill/badge styles --- */

@@ -46,6 +46,8 @@
       oscActivity: "oscActivity",
       resetRoles: "resetRoles",
       rolesReset: "rolesReset",
+      setVenuePanels: "setVenuePanels",
+      venuePanels: "venuePanels",
     },
   };
 });

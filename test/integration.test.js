@@ -116,6 +116,9 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   const opSocket = io(PERFORMER_URL, { reconnection: false });
   t.after(() => opSocket.close());
 
+  const opPanelsSync = [];
+  opSocket.on(EVENTS.venuePanels, (data) => opPanelsSync.push(data));
+
   await new Promise((resolve) => {
     opSocket.on(EVENTS.idConfirmation, (data) => {
       assert.equal(data.status, "accepted");
@@ -125,6 +128,24 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
     opSocket.on(EVENTS.clientId, () => {}); // drain
     opSocket.emit(EVENTS.selectId, { userType: "0" });
   });
+
+  assert.ok(
+    await new Promise((resolve) => {
+      if (opPanelsSync.length > 0) {
+        resolve(true);
+        return;
+      }
+      opSocket.once(EVENTS.venuePanels, () => resolve(true));
+      setTimeout(() => resolve(false), 300);
+    }),
+    "the operator receives the panels state on selectId",
+  );
+
+  assert.deepEqual(
+    opPanelsSync,
+    [{ visible: false }],
+    "the operator's toggle state syncs on selectId (reload recovery)",
+  );
 
   // Operator receives oscActivity for point + lineStroke
   const activitySeen = new Promise((resolve) => {
@@ -155,12 +176,34 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   });
   t.after(() => venueSocket.close());
 
+  const venuePanelsUpdates = [];
+  venueSocket.on(EVENTS.venuePanels, (data) =>
+    venuePanelsUpdates.push(data),
+  );
+
   await new Promise((resolve) => venueSocket.once("connect", resolve));
 
   assert.equal(
     await countOnVenueConnect,
     1,
     "the venue connection re-broadcasts the count — still only player 1",
+  );
+
+  assert.deepEqual(
+    venuePanelsUpdates,
+    [{ visible: false }],
+    "a fresh venue connection inherits the current panels state (off)",
+  );
+
+  // Panels off: the OSC stream stays operator-only.
+  p1Socket.emit(EVENTS.lineStroke, { id: "p1-p3", stroke: 0.3 });
+
+  assert.ok(
+    await new Promise((resolve) => {
+      venueSocket.once(EVENTS.oscActivity, () => resolve(false));
+      setTimeout(() => resolve(true), 300);
+    }),
+    "no oscActivity reaches the venue while its panels are off",
   );
 
   const venueSawPoint = new Promise((resolve) => {
@@ -172,6 +215,75 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   const venuePoint = await venueSawPoint;
   assert.equal(venuePoint.clientId, 1);
   assert.deepEqual(venuePoint.main, { x: 10, y: 20 });
+
+  // The venue socket is read-only itself: its own command is ignored too.
+  venueSocket.emit(EVENTS.setVenuePanels, { visible: true });
+
+  assert.ok(
+    await new Promise((resolve) => {
+      venueSocket.once(EVENTS.venuePanels, () => resolve(false));
+      setTimeout(() => resolve(true), 300);
+    }),
+    "a venue socket's setVenuePanels is ignored",
+  );
+
+  // Operator toggles the projection info panels: the venue page shows the
+  // monitor page's side content — performance intro and OSC table.
+  const venueSawPanelsOn = new Promise((resolve) => {
+    venueSocket.once(EVENTS.venuePanels, resolve);
+  });
+
+  opSocket.emit(EVENTS.setVenuePanels, { visible: true });
+
+  assert.deepEqual(await venueSawPanelsOn, { visible: true });
+
+  // With the panels on, the venue rides the OSC activity stream too.
+  const venueSawOsc = new Promise((resolve) => {
+    venueSocket.once(EVENTS.oscActivity, resolve);
+  });
+
+  p1Socket.emit(EVENTS.lineStroke, { id: "p1-p2", stroke: 0.7 });
+
+  assert.equal((await venueSawOsc).address, "/p1-p2");
+
+  // A projection joining later inherits the current state on connect.
+  const venue2Socket = io(PERFORMER_URL, {
+    reconnection: false,
+    auth: { surface: SURFACES.venue },
+  });
+  const venue2State = new Promise((resolve) => {
+    venue2Socket.once(EVENTS.venuePanels, resolve);
+  });
+  t.after(() => venue2Socket.close());
+
+  await new Promise((resolve) => venue2Socket.once("connect", resolve));
+
+  assert.deepEqual(await venue2State, { visible: true });
+
+  // Only the operator may toggle: a player's command changes nothing.
+  p1Socket.emit(EVENTS.setVenuePanels, { visible: false });
+
+  assert.ok(
+    await new Promise((resolve) => {
+      venueSocket.once(EVENTS.venuePanels, () => resolve(false));
+      setTimeout(() => resolve(true), 300);
+    }),
+    "a player's setVenuePanels is ignored",
+  );
+
+  const venueSawPanelsOff = new Promise((resolve) => {
+    venueSocket.once(EVENTS.venuePanels, resolve);
+  });
+
+  opSocket.emit(EVENTS.setVenuePanels, { visible: false });
+
+  assert.deepEqual(await venueSawPanelsOff, { visible: false });
+
+  assert.deepEqual(
+    venuePanelsUpdates,
+    [{ visible: false }, { visible: true }, { visible: false }],
+    "the venue saw connect/on/off — the ignored player toggle added nothing",
+  );
 
   const countAfterVenueClaim = new Promise((resolve) => {
     opSocket.once(EVENTS.clientCount, resolve);
@@ -320,6 +432,10 @@ test("shipped monitor bundle: the ?surface=venue spectator branch", () => {
     path.join(PROJECT_ROOT, "public", "style.css"),
     "utf8",
   );
+  const html = fs.readFileSync(
+    path.join(PROJECT_ROOT, "public", "index.html"),
+    "utf8",
+  );
   const sharedSource = fs.readFileSync(
     path.join(PROJECT_ROOT, "public", "shared.js"),
     "utf8",
@@ -347,5 +463,18 @@ test("shipped monitor bundle: the ?surface=venue spectator branch", () => {
     sharedSource,
     /venue:\s*"venue"/,
     "shared.js defines the venue surface value",
+  );
+
+  // The operator's projection info toggle: a third button in the
+  // bottom-left group, wired to the venue panels state.
+  assert.match(
+    html,
+    /id="venue-panels"/,
+    "monitor page ships the venue panels toggle button",
+  );
+  assert.match(
+    style,
+    /body\.venue-panels \.monitor-panel/,
+    "style shows the monitor panels on the venue surface when toggled on",
   );
 });

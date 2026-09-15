@@ -21,6 +21,7 @@ let connectionStatusTimeout = null;
 let localPoint; // Local touch point
 let remotePoints = {};
 let qrVisible = false;
+let venuePanelsOn = false; // Projection info panels state (server-held)
 let activeLines = {}; // added global variable for tracking active line connections
 let pointFrameCount = 0; // throttle: emit point every 2 frames
 let maxLineLength = 300;
@@ -210,8 +211,23 @@ function setup() {
   });
 
   socket.on(EVENTS.oscActivity, (data) => {
-    if (IS_OPERATOR) {
+    if (IS_OPERATOR || IS_VENUE) {
       updateOscActivity(data);
+    }
+  });
+
+  // Projection info panels: the operator button's state mirror; the venue
+  // page shows the monitor side panels (intro + OSC table) while on.
+  socket.on(EVENTS.venuePanels, (data) => {
+    venuePanelsOn = Boolean(data && data.visible);
+
+    if (IS_VENUE) {
+      document.body.classList.toggle("venue-panels", venuePanelsOn);
+    } else if (IS_OPERATOR) {
+      document.getElementById("venue-panels").classList.toggle(
+        "active",
+        venuePanelsOn,
+      );
     }
   });
 
@@ -274,6 +290,9 @@ function setup() {
     });
     document.getElementById("reset-roles").addEventListener("click", () => {
       socket.emit(EVENTS.resetRoles);
+    });
+    document.getElementById("venue-panels").addEventListener("click", () => {
+      socket.emit(EVENTS.setVenuePanels, { visible: !venuePanelsOn });
     });
   }
 }
