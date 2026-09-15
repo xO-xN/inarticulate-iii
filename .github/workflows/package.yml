@@ -177,11 +177,14 @@ jobs:
 
             ### Changes in ${{ env.VERSION }}
 
-            - Shutdown hardening ported from the PNDS Template core: live connections
-              are force-closed once the server stops listening, and every client is
-              disconnected before Socket.IO closes — a phone on a weak network can no
-              longer hold the stop sequence past the App's kill window (the occasional
-              5–10 s blank stop cover when closing the project)
-            - Shutdown now logs per-step timing (`[shutdown] steps: …`) for field diagnosis
-            - Regression test added: SIGTERM with live clients connected (websocket
-              player, polling client, keep-alive on both ports) exits cleanly within a second
+            - Projection surface (`?surface=venue`, what PNDS App's projection
+              window loads): a pure audience view — the full canvas with every
+              performer's live trajectory, no operator panels or controls.
+              Strictly read-only: sends no events, never counts in the
+              connection number
+            - New ⓘ button on the monitor page (bottom-left group): remotely
+              toggles the projection screen between the pure audience canvas
+              and the full info view (performance rules + live OSC table).
+              A projection joining or reconnecting mid-show inherits the
+              current state; OSC activity reaches the projection only while
+              its panels are on
