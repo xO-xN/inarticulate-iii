@@ -24,6 +24,12 @@
 
     playerIds: ["1", "2", "3"],
 
+    // Projection surface query value: the App's projection window loads
+    // the monitor page as ?surface=venue — a read-only spectator client.
+    surfaces: {
+      venue: "venue",
+    },
+
     storageKeys: {
       playerId: "inarticulate-iii.player-id",
       playerClaim: "inarticulate-iii.player-claim",

@@ -6,6 +6,8 @@
 // - manages player identity: claim, takeover, reject
 // - forwards point/line events to the audio layer
 // - broadcasts visual state and OSC activity to connected clients
+// - marks venue projection spectators (?surface=venue) at handshake:
+//   read-only, never counted as present, never allowed to claim
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
@@ -33,8 +35,12 @@ const { ProjectAudio } = require("./audio/controller");
 const shared = require("./public/shared");
 
 const PROJECT_ROOT = __dirname;
-const { events: EVENTS, playerIds: VALID_PLAYER_IDS, storageKeys: STORAGE } =
-  shared;
+const {
+  events: EVENTS,
+  playerIds: VALID_PLAYER_IDS,
+  storageKeys: STORAGE,
+  surfaces: SURFACES,
+} = shared;
 
 const VALID_PLAYER_ID_SET = new Set(VALID_PLAYER_IDS);
 
@@ -205,6 +211,10 @@ function broadcastClientCount() {
   let count = 0;
 
   for (const sock of io.sockets.sockets.values()) {
+    if (sock.isVenue) {
+      continue; // the projection spectator is never present
+    }
+
     if (sock.userType && sock.userType !== "0") {
       count += 1;
     }
@@ -229,12 +239,24 @@ function broadcastOscActivity(address, values) {
 
 io.on("connection", (socket) => {
   socket.clientId = nextTempId++;
+
+  // Connection category, not an event: the venue projection client
+  // (?surface=venue on the monitor page) declares itself in the handshake
+  // because it never sends anything. The mark keeps it out of presence and
+  // closes every claim path for it below.
+  socket.isVenue = socket.handshake.auth?.surface === SURFACES.venue;
+
   socket.emit(EVENTS.clientId, socket.clientId);
   broadcastClientCount();
 
   // ---- Player ID selection ----
 
   socket.on(EVENTS.selectId, (data) => {
+    if (socket.isVenue) {
+      // A read-only spectator cannot become an operator or a player.
+      return;
+    }
+
     const userType =
       data && data.userType !== undefined ? String(data.userType) : null;
     const claimToken = data?.claimToken;

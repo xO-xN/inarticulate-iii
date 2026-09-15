@@ -310,6 +310,15 @@ body.monitor-mode #reset-roles {
     right: 20px;
 }
 
+/* Venue projection surface (?surface=venue): audience sees the canvas
+   alone. Panels/QR/controls keep their display:none defaults (no
+   monitor-mode class); badges are the only chrome the sketch can still
+   flag visible at runtime, so they get the explicit off. Connection
+   status stays — a projection that lost the server must say so. */
+body.venue-mode .badge {
+    display: none;
+}
+
 /* Connection Status */
 #connection-status {
     position: fixed;

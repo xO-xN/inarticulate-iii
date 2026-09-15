@@ -1,5 +1,11 @@
-const IS_OPERATOR = location.port === String(window.PNDS.monitorPort);
 const P = window.PNDS;
+const IS_OPERATOR = location.port === String(P.monitorPort);
+// Venue projection surface: the monitor page loaded with ?surface=venue —
+// the audience-facing canvas. Same rendering as the operator console minus
+// every panel and control, and strictly read-only on the wire.
+const IS_VENUE =
+  IS_OPERATOR &&
+  new URLSearchParams(location.search).get("surface") === P.surfaces.venue;
 const STORAGE = P.storageKeys;
 const EVENTS = P.events;
 
@@ -7,7 +13,7 @@ let socket;
 let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
 let userType = IS_OPERATOR ? "0" : readStoredPlayerId();
-let selectionMade = false; // Confirmed by the current server connection
+let selectionMade = IS_VENUE; // a venue page renders without selecting a role
 let performerClaimToken = IS_OPERATOR ? null : getClaimToken();
 let hasConnectedOnce = false;
 let connectionStatusTimeout = null;
@@ -119,12 +125,19 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   frameRate(60);
 
-  if (IS_OPERATOR) {
+  if (IS_VENUE) {
+    // Canvas only: venue-mode never adds monitor-mode, so the panels, QR
+    // overlay and controls stay at their display:none defaults.
+    document.body.classList.add("venue-mode");
+  } else if (IS_OPERATOR) {
     document.body.classList.add("monitor-mode");
   }
 
   const hostname = window.location.hostname;
-  socket = io.connect(`http://${hostname}:${P.performerPort}`);
+  socket = io.connect(
+    `http://${hostname}:${P.performerPort}`,
+    IS_VENUE ? { auth: { surface: P.surfaces.venue } } : {},
+  );
 
   // --- Connection status UI ---
   socket.on("connect", () => {
@@ -133,6 +146,12 @@ function setup() {
       hasConnectedOnce ? "Reconnected" : "Connected",
     );
     hasConnectedOnce = true;
+
+    // Pure spectator: no selectId, no QR — the handshake auth already
+    // declared the venue category, so no event is ever sent.
+    if (IS_VENUE) {
+      return;
+    }
 
     if (IS_OPERATOR) {
       socket.emit(EVENTS.selectId, { userType: "0" });
@@ -238,7 +257,7 @@ function setup() {
   		}
   	});
 
-  if (IS_OPERATOR) {
+  if (IS_OPERATOR && !IS_VENUE) {
     document.getElementById("qr-toggle").addEventListener("click", () => {
       if (qrVisible) hideQR();
       else showQR();
