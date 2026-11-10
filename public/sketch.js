@@ -1,15 +1,26 @@
 const P = window.PNDS;
-const IS_OPERATOR = location.port === String(P.monitorPort);
+const IS_OPERATOR = window.__PNDS_CONFIG__.role === "monitor";
 // Venue projection surface: the monitor page loaded with ?surface=venue —
 // the audience-facing canvas. Same rendering as the operator console minus
 // every panel and control, and strictly read-only on the wire.
 const IS_VENUE =
   IS_OPERATOR &&
   new URLSearchParams(location.search).get("surface") === P.surfaces.venue;
-const STORAGE = P.storageKeys;
+const participation = window.PNDS_PARTICIPATION;
+// The native private origin already isolates this project's original keys.
+const STORAGE = participation && participation.basePath !== "/"
+  ? Object.fromEntries(Object.entries(P.storageKeys).map(([name, key]) => [name, participation.storageKey(key)]))
+  : P.storageKeys;
+const scoreResource = relative => participation ? participation.resource(relative) : relative;
 const EVENTS = P.events;
 
 let socket;
+function reportPreparedPage() {
+  if (document.getElementById("pnds-required-style")?.dataset.ready === "true" && socket?.connected) {
+    participation?.reportPrepared();
+  }
+}
+window.addEventListener("pnds:style-ready", reportPreparedPage);
 let ID; // Client Browser ID
 let clientCount = 0; // Store total client count
 let userType = IS_OPERATOR ? "0" : readStoredPlayerId();
@@ -19,13 +30,14 @@ let hasConnectedOnce = false;
 let connectionStatusTimeout = null;
 
 let localPoint; // Local touch point
+let nativeTouches = null;
 let remotePoints = {};
-let qrVisible = false;
 let venuePanelsOn = false; // Projection info panels state (server-held)
 let activeLines = {}; // added global variable for tracking active line connections
 let pointFrameCount = 0; // throttle: emit point every 2 frames
 let maxLineLength = 300;
 const colors = ["#000000", "#14213d", "#515E63", "#e5e5e5", "#ffffff"];
+let p1c, p2c, p3c;
 const { pow } = Math;
 
 function readStoredPlayerId() {
@@ -113,18 +125,28 @@ function promptForUserType() {
   }, 300);
 }
 
-function preload() {
-  p1c = loadImage("/assets/p1curve.png");
-  p2c = loadImage("/assets/p2curve.png");
-  p3c = loadImage("/assets/p3curve.png");
-}
-
-function setup() {
+async function setup() {
   // iOS fullscreen: hide Safari address bar on load
   window.scrollTo(0, 1);
 
-  createCanvas(windowWidth, windowHeight);
+  const canvas = createCanvas(windowWidth, windowHeight);
+  installTouchInput(canvas.elt);
   frameRate(60);
+
+  try {
+    [p1c, p2c, p3c] = await Promise.all([
+      loadImage(scoreResource("assets/p1curve.png")),
+      loadImage(scoreResource("assets/p2curve.png")),
+      loadImage(scoreResource("assets/p3curve.png")),
+    ]);
+  } catch (error) {
+    participation?.reportPreparationFailed();
+    selectionMade = false;
+    noLoop();
+    updateConnStatus("disconnected", "Score images failed to load. Reload to retry.");
+    console.error("[score] Image loading failed:", error);
+    return;
+  }
 
   if (IS_VENUE) {
     // Canvas only: venue-mode never adds monitor-mode, so the panels, QR
@@ -136,12 +158,13 @@ function setup() {
 
   const hostname = window.location.hostname;
   socket = io.connect(
-    `http://${hostname}:${P.performerPort}`,
-    IS_VENUE ? { auth: { surface: P.surfaces.venue } } : {},
+    IS_OPERATOR ? `http://${hostname}:${P.performerPort}` : window.location.origin,
+    IS_VENUE ? { auth: { surface: P.surfaces.venue } } : { ...participation?.socketOptions },
   );
 
   // --- Connection status UI ---
   socket.on("connect", () => {
+    reportPreparedPage();
     updateConnStatus(
       "connected",
       hasConnectedOnce ? "Reconnected" : "Connected",
@@ -156,7 +179,6 @@ function setup() {
 
     if (IS_OPERATOR) {
       socket.emit(EVENTS.selectId, { userType: "0" });
-      showQR();
       return;
     }
 
@@ -274,20 +296,6 @@ function setup() {
   	});
 
   if (IS_OPERATOR && !IS_VENUE) {
-    document.getElementById("qr-toggle").addEventListener("click", () => {
-      if (qrVisible) hideQR();
-      else showQR();
-    });
-    document.getElementById("qr-wrapper").addEventListener("click", () => {
-      if (qrVisible) hideQR();
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.code === "Space") {
-        event.preventDefault();
-        if (qrVisible) hideQR();
-        else showQR();
-      }
-    });
     document.getElementById("reset-roles").addEventListener("click", () => {
       socket.emit(EVENTS.resetRoles);
     });
@@ -295,6 +303,33 @@ function setup() {
       socket.emit(EVENTS.setVenuePanels, { visible: !venuePanelsOn });
     });
   }
+}
+
+function installTouchInput(canvas) {
+  // p5 2 updates touches from PointerEvents. Safari and native touch
+  // adapters must also reach the same draw path through TouchEvents.
+  const update = (event) => {
+    if (event.cancelable) event.preventDefault();
+    const bounds = canvas.getBoundingClientRect();
+    nativeTouches = bounds.width > 0 && bounds.height > 0
+      ? Array.from(event.touches, (touch) => ({
+          x: (touch.clientX - bounds.left) * width / bounds.width,
+          y: (touch.clientY - bounds.top) * height / bounds.height,
+        }))
+      : [];
+  };
+  for (const type of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
+    canvas.addEventListener(type, update, { passive: false });
+  }
+  canvas.addEventListener("pointerdown", (event) => {
+    // Only a fresh gesture may restore p5 ownership after native release;
+    // reading a stale p5 array on the next draw must not revive old points.
+    if (event.pointerType === "touch" && nativeTouches?.length === 0) nativeTouches = null;
+  });
+  canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+  const release = () => { if (nativeTouches !== null) nativeTouches = []; };
+  window.addEventListener("blur", release);
+  window.addEventListener("pagehide", release);
 }
 
 function updateConnStatus(state, text) {
@@ -351,19 +386,6 @@ function updateOscActivity(data) {
   }, 220);
 }
 
-function showQR() {
-  qrVisible = true;
-  document.getElementById("qr-overlay").classList.add("visible");
-  document.getElementById("qr-toggle").classList.add("active");
-  document.getElementById("qr-toggle-icon").textContent = "\u2B07";
-}
-function hideQR() {
-  qrVisible = false;
-  document.getElementById("qr-overlay").classList.remove("visible");
-  document.getElementById("qr-toggle").classList.remove("active");
-  document.getElementById("qr-toggle-icon").textContent = "\u2B06";
-}
-
 let touchReleasedSent = false; // Flag to track if 0 has been sent
 
 function windowResized() {
@@ -409,9 +431,10 @@ function draw() {
   noStroke();
 
   // Only process touch inputs if not in observer mode
-  if (userType !== "0" && touches.length) {
+  const currentTouches = nativeTouches ?? touches;
+  if (userType !== "0" && currentTouches.length) {
     touchReleasedSent = false; // Reset flag when touch is detected
-    const pt = touches[0]; // first touch for main point
+    const pt = currentTouches[0]; // first touch for main point
     localPoint = createVector(pt.x, pt.y);
     const cp = createVector(pt.x - width / 2, pt.y - height / 2);
     // Build data with main point info
@@ -421,8 +444,8 @@ function draw() {
     data.relY = constrain(map(pt.y, height, 0, 0, 1), 0, 1);
 
     // if second touch exists, include amp data and draw locally as before
-    if (touches.length > 1) {
-      const ampPoint = touches[1]; // second touch for amplitude
+    if (currentTouches.length > 1) {
+      const ampPoint = currentTouches[1]; // second touch for amplitude
       const ampVec = createVector(
         ampPoint.x - width / 2,
         ampPoint.y - height / 2,

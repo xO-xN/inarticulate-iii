@@ -192,53 +192,14 @@ canvas {
     height: 100%;
     margin: 0;
     padding: 0;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 /* QR Overlay */
-#qr-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    z-index: 10;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.35s ease;
-}
-#qr-overlay.visible {
-    opacity: 1;
-    pointer-events: auto;
-}
-#qr-wrapper {
-    background: white;
-    padding: 20px;
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-    pointer-events: auto;
-}
-#qr-image {
-    display: block;
-    width: min(50vw, 50vh, 240px);
-    height: auto;
-    image-rendering: pixelated;
-}
-#qr-label {
-    color: #e5e5e5;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 16px;
-    margin-top: 16px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    opacity: 0.8;
-    pointer-events: none;
-}
 /* QR Toggle */
-#qr-toggle,
 #reset-roles,
 #venue-panels {
     position: fixed;
@@ -261,21 +222,16 @@ canvas {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
-#qr-toggle {
-    left: 20px;
-}
 #reset-roles {
     left: 80px;
 }
 #venue-panels {
     left: 140px;
 }
-body.monitor-mode #qr-toggle,
 body.monitor-mode #reset-roles,
 body.monitor-mode #venue-panels {
     display: flex;
 }
-#qr-toggle:active,
 #reset-roles:active,
 #venue-panels:active {
     transform: scale(0.9);

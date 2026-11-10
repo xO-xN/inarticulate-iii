@@ -2,3 +2,4 @@ node_modules/
 .lh/
 .DS_Store
 *.log
+.pnds-creation/

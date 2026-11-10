@@ -1,6 +1,5 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { spawn } = require("node:child_process");
 const path = require("node:path");
 const net = require("node:net");
 const fs = require("node:fs");
@@ -9,76 +8,13 @@ const { io } = require("socket.io-client");
 
 const { events: EVENTS, surfaces: SURFACES } = require("../public/shared");
 
-const PROJECT_ROOT = path.join(__dirname, "..");
-const PERFORMER_URL = `http://127.0.0.1:${require("../manifest.json").scoreServer.performerPort}`;
-const MONITOR_URL = `http://127.0.0.1:${require("../manifest.json").scoreServer.monitorPort}`;
-const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
-
-function waitForHealthReady() {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-
-    const tick = async () => {
-      attempts += 1;
-
-      try {
-        const response = await fetch(HEALTH_URL);
-        const payload = await response.json();
-
-        if (payload.status === "ready") {
-          resolve(payload);
-          return;
-        }
-      } catch {
-        // server not up yet
-      }
-
-      if (attempts >= 40) {
-        reject(new Error("server never reported health ready"));
-        return;
-      }
-
-      setTimeout(tick, 250);
-    };
-
-    tick();
-  });
-}
-
-// Fails fast with an actionable message when a dev server already holds
-// the ports — otherwise the spawned server cannot bind and the health
-// poll would silently talk to the wrong instance.
-async function assertPortsFree() {
-  for (const port of [6868, 6869]) {
-    const inUse = await new Promise((resolve) => {
-      const probe = net.connect({ port, host: "127.0.0.1" });
-
-      probe.once("connect", () => {
-        probe.destroy();
-        resolve(true);
-      });
-      probe.once("error", () => resolve(false));
-    });
-
-    if (inUse) {
-      throw new Error(
-        `Port ${port} is already in use — stop running dev servers (npm run dev / dev:none) before the integration test.`,
-      );
-    }
-  }
-}
+const { PROJECT_ROOT, runtimeFixture } = require("./support/runtime.cjs");
 
 test("score server: health, selectId, point, lineStroke, resetRoles, pages", async (t) => {
-  await assertPortsFree();
-
-  const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
-    cwd: PROJECT_ROOT,
-    stdio: "ignore",
-  });
-
-  t.after(() => server.kill("SIGTERM"));
-
-  const health = await waitForHealthReady();
+  const fixture = await runtimeFixture(t);
+  const PERFORMER_URL = fixture.performerUrl;
+  const MONITOR_URL = fixture.monitorUrl;
+  const health = await fixture.ready();
 
   assert.equal(health.projectId, "inarticulate-iii");
   assert.ok(
@@ -89,8 +25,8 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
     health.audio.status === "ready" || health.audio.status === "disabled",
     `unexpected audio.status: ${health.audio.status}`,
   );
-  assert.equal(health.scoreServer.performerPort, 6868);
-  assert.equal(health.scoreServer.monitorPort, 6869);
+  assert.equal(health.scoreServer.performerPort, fixture.performerPort);
+  assert.equal(health.scoreServer.monitorPort, fixture.monitorPort);
 
   // Player 1 joins
   const p1Socket = io(PERFORMER_URL, { reconnection: false });
@@ -323,40 +259,10 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
 });
 
 test("shutdown: SIGTERM completes promptly with live clients still connected", async (t) => {
-  // The previous test's teardown signals its server but does not wait
-  // for the exit; give the ports a moment before claiming them.
-  const portFree = (port) =>
-    new Promise((resolve) => {
-      const probe = net.connect({ port, host: "127.0.0.1" });
-
-      probe.once("connect", () => {
-        probe.destroy();
-        resolve(false);
-      });
-      probe.once("error", () => resolve(true));
-    });
-
-  const portsFree = async () =>
-    (await portFree(6868)) && (await portFree(6869));
-
-  const deadline = Date.now() + 5000;
-
-  while (Date.now() < deadline && !(await portsFree())) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-
-  assert.ok(
-    await portsFree(),
-    "the previous test's server never released the ports",
-  );
-
-  const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
-    cwd: PROJECT_ROOT,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-  t.after(() => server.kill("SIGKILL"));
-
-  await waitForHealthReady();
+  const fixture = await runtimeFixture(t);
+  const server = fixture.child;
+  const PERFORMER_URL = fixture.performerUrl;
+  await fixture.ready();
 
   // The worst case the App leaves behind on stop: a seated player
   // (websocket), a polling-only client (a phone on a weak network), and
@@ -384,7 +290,7 @@ test("shutdown: SIGTERM completes promptly with live clients still connected", a
 
   const raw = [];
 
-  for (const port of [6868, 6869]) {
+  for (const port of [fixture.performerPort, fixture.monitorPort]) {
     const socket = net.connect({ port, host: "127.0.0.1" });
 
     await new Promise((resolve) => socket.once("connect", resolve));

@@ -12,7 +12,9 @@
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
-const express = require("express");
+const fs = require("node:fs");
+const libraries = require("./lib/shared-libraries");
+const express = libraries.requireLibrary("express");
 
 const {
   loadManifest,
@@ -21,13 +23,13 @@ const {
   resolveAudioMode,
   resolveOscTarget,
   resolveServerConfig,
+  resolvePerformerUrl,
   formatAudioMode,
 } = require("./lib/config");
 const { resolveHostLanIp } = require("./lib/network");
 const { HealthTracker } = require("./lib/health");
 const { AudioEngine } = require("./lib/audio-engine");
 const { decidePlayerClaim } = require("./lib/players");
-const { qrHandler } = require("./lib/qr");
 const {
   attachShutdown,
   closeHttpServer,
@@ -60,7 +62,27 @@ if (cliOptions.help) {
 const audioMode = resolveAudioMode(cliOptions.audioMode, manifest);
 const oscTarget = resolveOscTarget(cliOptions.oscTarget, manifest, process.env);
 const serverConfig = resolveServerConfig(manifest);
+const assignment = serverConfig.runtimeAssignment;
+let boundListeners = 0;
+function listenerOptions(role) {
+  const service = assignment?.services.find(service => service.role === role);
+  return service ? { fd: service.fd } : { port: serverConfig[`${role}Port`], host: "0.0.0.0" };
+}
+function publishRuntimeReport(error) {
+  if (!assignment) return;
+  const report = {
+    version: 1, runId: assignment.runId, status: error ? "error" : "bound",
+    services: error ? [] : assignment.services.map(({ role, port }) => ({ role, port })),
+    ...(error ? { error: error.message } : {}),
+  };
+  fs.writeFileSync(`${assignment.reportPath}.tmp`, JSON.stringify(report));
+  fs.renameSync(`${assignment.reportPath}.tmp`, assignment.reportPath);
+}
+function reportBound() {
+  if (++boundListeners === 2) publishRuntimeReport();
+}
 const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
+const performerUrl = resolvePerformerUrl(process.env, hostLanIp, serverConfig.performerPort);
 
 // ------------------------------------------------------------
 // HTTP servers (performer port + monitor port share public/)
@@ -69,35 +91,43 @@ const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
 const app = express();
 const monitorApp = express();
 
+for (const target of [app, monitorApp]) {
+  target.get("/__pnds/context.js", (_request, response) => {
+    response.type("application/javascript").send("/* Direct project access: no Host confirmation. */\n");
+  });
+}
+libraries.attachBrowserRoutes(app);
+libraries.attachBrowserRoutes(monitorApp);
+
 app.use(express.static(path.join(PROJECT_ROOT, "public")));
 monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
 
-// Injects manifest ports into the browser so shared.js can read them.
-// The single source of truth is manifest.json.
-function configScript(request, response) {
-  response.type("application/javascript").send(
-    `window.__PNDS_CONFIG__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort} };`,
-  );
+// Serving role is explicit: an HTTPS performer origin has no local port.
+function configScript(role) {
+  return (_request, response) => {
+    response.type("application/javascript").send(
+      `window.__PNDS_CONFIG__ = ${JSON.stringify({
+        role, performerUrl,
+        performerPort: serverConfig.performerPort,
+        monitorPort: serverConfig.monitorPort,
+      })};`,
+    );
+  };
 }
 
-app.get("/__config.js", configScript);
-monitorApp.get("/__config.js", configScript);
+app.get("/__config.js", configScript("performer"));
+monitorApp.get("/__config.js", configScript("monitor"));
 
 const health = new HealthTracker({
   projectId: manifest.id,
   audioMode,
   performerPort: serverConfig.performerPort,
   monitorPort: serverConfig.monitorPort,
+  runtimeRunId: assignment?.runId,
 });
 
 app.get("/__pnds/health", health.handler());
 monitorApp.get("/__pnds/health", health.handler());
-
-// QR code for the performer page, shown on the monitor page.
-monitorApp.get(
-  "/qr",
-  qrHandler(`http://${hostLanIp}:${serverConfig.performerPort}/`),
-);
 
 // ------------------------------------------------------------
 // Audio layer
@@ -116,37 +146,30 @@ const projectAudio = new ProjectAudio(audioEngine);
 // Startup
 // ------------------------------------------------------------
 
-const server = app.listen(serverConfig.performerPort, "0.0.0.0", () => {
+const server = app.listen(listenerOptions("performer"), (error) => {
+  if (error) {
+    publishRuntimeReport(error);
+    console.error(`Performer HTTP server failed on port ${serverConfig.performerPort}:`, error);
+    process.exit(1);
+  }
+  reportBound();
   printRuntimeInfo();
 });
 
 const monitorServer = monitorApp.listen(
-  serverConfig.monitorPort,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`,
-    );
+  listenerOptions("monitor"),
+  (error) => {
+    if (error) {
+      publishRuntimeReport(error);
+      console.error(`Monitor HTTP server failed on port ${serverConfig.monitorPort}:`, error);
+      process.exit(1);
+    }
+    reportBound();
+    console.log(`Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`);
   },
 );
 
-server.on("error", (error) => {
-  console.error(
-    `Performer HTTP server failed on port ${serverConfig.performerPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-monitorServer.on("error", (error) => {
-  console.error(
-    `Monitor HTTP server failed on port ${serverConfig.monitorPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-const io = require("socket.io")(server, {
+const io = libraries.requireLibrary("socket.io")(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
@@ -644,6 +667,6 @@ function printRuntimeInfo() {
     `[server] audio mode: ${formatAudioMode(audioMode)} (target ${oscTarget})`,
   );
   console.log(
-    `[server] performer page: http://${hostLanIp}:${serverConfig.performerPort}/`,
+    `[server] performer page: ${performerUrl}`,
   );
 }

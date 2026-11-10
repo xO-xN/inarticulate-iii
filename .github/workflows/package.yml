@@ -2,7 +2,7 @@ name: Package release
 
 # Releases ship as .pnds — the PNDS transport container (PNDS App repo,
 # docs/PNDS_PROJECT_BUNDLE_SPECIFICATION.md): a zip with exactly one root
-# directory holding the runnable project (production deps installed, no
+# directory holding the runnable project (fixed App shared references, no
 # npm at the venue) plus a top-level pnds-bundle.json. The App installs a
 # .pnds directly (double-click / ⌘O / drag); nobody unzips anything.
 #
@@ -35,10 +35,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # Matches the Node runtime bundled in PNDS App.
-          node-version: '22.14.0'
+          node-version: '24'
 
-      - name: Install production dependencies
-        run: npm ci --omit=dev
+      - name: Install fixed dependencies for CI only
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Check and test the source
+        run: npm run check && npm test
+
+      - name: Resolve the exact CI shared library map
+        run: node scripts/shared-env.cjs > "$RUNNER_TEMP/pnds-shared-env.json"
 
       - name: Assemble the project directory (spec §3.2 exclusion list)
         run: |
@@ -50,8 +56,8 @@ jobs:
           # exactly like the App's own packer.
           rsync -a ./ "$BUNDLE/" \
             --exclude='.git*' --exclude='.DS_Store' \
-            --exclude='/docs/' --exclude='/test/' --exclude='/dist/'
-          find "$BUNDLE" -name '.lh' -type d -prune -exec rm -rf {} +
+            --exclude='/docs/' --exclude='/test/' --exclude='/dist/' \
+            --exclude='/node_modules/' --exclude='.lh/'
           node -e '
             const manifest = require("./manifest.json");
             if (manifest.name !== "Inarticulate III") {
@@ -83,14 +89,20 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            const deps = Object.keys(require("./package.json").dependencies);
-            const missing = deps.filter(
-              d => !fs.existsSync(`${process.env.BUNDLE}/node_modules/${d}`)
-            );
-            if (missing.length) {
-              throw new Error("missing from bundle: " + missing.join(", "));
+            const manifest = require("./manifest.json");
+            const deps = require("./package.json").dependencies;
+            const references = new Map(manifest.sharedLibraries.map(({ id, version }) => [id, version]));
+            if (manifest.schemaVersion !== 2 || manifest.version !== require("./package.json").version) {
+              throw new Error("shared bundle metadata must use schema 2 and the same project version");
             }
-            console.log(`all ${deps.length} production dependencies present`);
+            for (const [id, version] of Object.entries(deps)) {
+              if (references.get(id) !== version) throw new Error(`missing exact shared reference: ${id}@${version}`);
+            }
+            if (fs.existsSync(`${process.env.BUNDLE}/node_modules`)) throw new Error("local npm dependencies leaked into shared bundle");
+            for (const file of ["server.js", "lib/shared-libraries.js", "public/sketch.js", "public/assets/p1curve.png", "public/assets/p2curve.png", "public/assets/p3curve.png", ...manifest.audio.synthdefs]) {
+              if (!fs.existsSync(`${process.env.BUNDLE}/${file}`)) throw new Error(`missing project asset: ${file}`);
+            }
+            console.log(`all ${references.size} exact App shared references present; no local dependencies`);
           '
           for f in docs test .github .git .gitignore; do
             if [ -e "$BUNDLE/$f" ]; then
@@ -104,8 +116,10 @@ jobs:
       - name: Smoke-test the bundle
         run: |
           cd "$BUNDLE"
+          export PNDS_SHARED_LIBRARIES="$(cat "$RUNNER_TEMP/pnds-shared-env.json")"
           node server.js --audio-mode none &
           SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true' EXIT
           for _ in 1 2 3 4 5 6 7 8 9 10; do
             sleep 1
             if curl -sf http://127.0.0.1:6868/__pnds/health -o /tmp/health.json; then
@@ -114,7 +128,11 @@ jobs:
           done
           cat /tmp/health.json
           grep -q '"status":"ready"' /tmp/health.json
+          curl -sf http://127.0.0.1:6868/__pnds/shared/p5.js -o /tmp/p5.js
+          curl -sf http://127.0.0.1:6869/__pnds/shared/socket.io.js -o /tmp/socket.io.js
+          curl -sf http://127.0.0.1:6869/qr -o /tmp/iii-qr.png
           kill "$SERVER_PID"
+          wait "$SERVER_PID"
 
       - name: Create the .pnds archive (spec §2 — one root plus metadata)
         run: |
@@ -133,7 +151,7 @@ jobs:
             }
             const forbidden = entries.filter((e) =>
               e.includes(".DS_Store") || e.includes("/.git") || e === ".git" ||
-              e.startsWith("Inarticulate III/docs/") || e.startsWith("Inarticulate III/test/")
+              e.startsWith("Inarticulate III/docs/") || e.startsWith("Inarticulate III/test/") || e.startsWith("Inarticulate III/node_modules/")
             );
             if (forbidden.length) {
               throw new Error("excluded paths leaked into the archive: " + forbidden.join(", "));
@@ -156,13 +174,13 @@ jobs:
             >
             > Do **not** download "Source code (zip)" / "Source code (tar.gz)" or use the
             > green "Code → Download ZIP" button — those contain the source only, without
-            > the installed Node.js dependencies.
+            > the installable project container.
             >
             > The `.pnds` file is a complete, installable project bundle.
 
             ### How to play
 
-            1. Install **PNDS App** (macOS, Apple Silicon):
+            1. Install **PNDS App 1.6.2 or newer** (macOS, Apple Silicon / Intel):
                https://github.com/xO-xN/PNDS-App/releases/latest
             2. Open `Inarticulate-III-${{ env.VERSION }}.pnds` with PNDS App
                (double-click, ⌘O, or drag it onto the window). The App installs
@@ -177,14 +195,10 @@ jobs:
 
             ### Changes in ${{ env.VERSION }}
 
-            - Projection surface (`?surface=venue`, what PNDS App's projection
-              window loads): a pure audience view — the full canvas with every
-              performer's live trajectory, no operator panels or controls.
-              Strictly read-only: sends no events, never counts in the
-              connection number
-            - New ⓘ button on the monitor page (bottom-left group): remotely
-              toggles the projection screen between the pure audience canvas
-              and the full info view (performance rules + live OSC table).
-              A projection joining or reconnecting mid-show inherits the
-              current state; OSC activity reaches the projection only while
-              its panels are on
+            - Fixed App shared package references: p5 2.3.4, Express 5.3.0,
+              qrcode 1.5.4, Socket.IO 4.8.4 and osc-min 2.1.2. The project
+              retains its own score assets, synthdefs and source modules.
+            - p5 2 image loading; same-origin performer Socket.IO for the
+              Host HTTPS entry. Projection and performer musical controls
+              retain the work’s existing rules.
+            - Complete Host performer URL shared by QR, config and logs.

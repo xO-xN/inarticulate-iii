@@ -1,12 +1,42 @@
 # Inarticulate III — PNDS Project Handoff
 
-本文档面向在其他开发环境中继续工作的 AI Agent 或开发者。它描述的是**当前磁盘中的实际状态**，而不是历史计划。
+本文档面向在其他开发环境中继续工作的 AI Agent 或开发者。先读本节的当前适配状态，再按需参考下文的历史交接记录。
 
-## 1. 项目定位与当前阶段
+## 2026-10-14 · 1.4.0 / App 1.6.2 适配
+
+当前入口是 `server.js`、`lib/osc-transport.js`、`lib/audio-engine.js` 与 `audio/controller.js`。下文早期交接记录含历史文件名与 App 规划，以当前源码及本节为准。新工程使用 schema 2，要求 PNDS App 1.6.2+；原 1.3.0 工程继续留在原工作目录供 1.6.1 测试。
+
+- 固定共享引用为 p5 2.3.4、Express 5.3.0、qrcode 1.5.4、Socket.IO 4.8.4、osc-min 2.1.2。Host 映射失败明确退出，独立运行用 `npm ci` 安装确切版本。打包不携带 `node_modules`，运行时不安装依赖。接线详见 [shared-libraries.md](shared-libraries.md)。
+- p5 2 在异步 `setup()` 中并行加载原三张谱面；加载失败显示错误，并在建立控制连接前停止。保留原 `touches[0]` 音高位置、`touches[1]` 幅度距离、触点释放、帧节流与连线政策。三张图片、SynthDef、声音源码和原 `audio/controller.js` 字节不变。
+- 页面身份由服务端显式注入的 `role` 判断；演奏者通过页面同源连接 Socket.IO，支持 HTTPS/WSS。完整 `PNDS_PERFORMER_URL` 同时用于页面配置、QR 与日志；operator／venue 沿用本地 monitor 到 performer 的连接。
+- 本作品仅使用触控，不声明 `needsHttps: true`，正常入口与 QR 默认 HTTP；即使全局 HTTPS 开关开启也保持 HTTP。`supportsPerformerUrl` 仅是兼容能力；App 只为明确声明安全上下文需求的工程选择 HTTPS，工程始终消费 Host 决定的同一网址。
+- `scripts/verify-shared-browser.mjs` 用真实 Chromium、实际 App 资源、无本地依赖的临时工程、随机端口和 UDP 接收器验证绘制、触点、身份恢复与 External 字节。其自签名 localhost HTTPS 只验证浏览器接线，不证明手机信任或 DNS 可达；下文旧版本的发声验证不替代本版本实机验收。
+- 用户在 #218 收尾时直接确认「我已实机测试没问题」，作为本作品实机验收反馈记录；未提供的设备型号与各声音模式操作不补写。III 正常入口为 HTTP，可信 HTTPS／DNS 不属于本作品正常运行的必要条件。
+- 原有 `docs/creator-handoff.md` 与未接入的 `modules/pnds-qr` 原样保留；本次不接入新的 QR 模块，不改 DNS，不提交或发布。
+
+复验示例（替换环境路径）：
+
+```sh
+npm ci
+npm run check
+npm test
+node scripts/verify-shared-browser.mjs \
+  --shared-root /path/to/PNDS-App/src-tauri/resources/shared-libraries \
+  --playwright-module /path/to/playwright/index.mjs \
+  --browser-executable /path/to/Chromium
+```
+
+---
+
+# 历史交接记录（1.4.0 适配前）
+
+以下内容保留早期实现、测试结果与当时的 App 规划，均按记录时的版本理解，不表示当前 1.4.0 的验收状态。
+
+## 1. 项目定位与当时阶段
 
 `Inarticulate III` 是一个 PNDS（Platform for Network Digital Score）示例 score project：三个演奏者在浏览器中触摸交互，网页通过 Socket.IO 共享视觉状态，Node.js 将音乐控制映射为 Internal scsynth OSC 或作品自身的 External OSC 协议。
 
-当前阶段结论：
+当时阶段结论：
 
 - score project 的核心网页、Socket.IO、音频 controller、Internal Synth、health 和关闭接口已经完成；
 - Internal 模式已由用户手动完成端到端验证：裸 `scsynth`、Node score server 与浏览器交互均可正常发声；

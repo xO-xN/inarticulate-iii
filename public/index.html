@@ -12,23 +12,26 @@
 
         <title>Inarticulate III</title>
 
-        <link rel="stylesheet" type="text/css" href="style.css" />
-
+        <script src="__pnds/context.js"></script>
+        <link id="pnds-required-style" rel="stylesheet" type="text/css"
+            onload="this.dataset.ready='true'; window.dispatchEvent(new Event('pnds:style-ready'))"
+            onerror="this.dataset.ready='failed'; window.PNDS_PARTICIPATION?.reportPreparationFailed()" />
+        <script>
+          (() => {
+            const context = window.PNDS_PARTICIPATION;
+            let href = "style.css";
+            if (context && context.basePath !== "/") {
+              const url = new URL(context.resource(href));
+              url.searchParams.set("pndsDocument", `${performance.timeOrigin}-${Math.random().toString(36).slice(2)}`);
+              href = url.href;
+            }
+            document.getElementById("pnds-required-style").href = href;
+          })();
+        </script>
         <script src="__config.js"></script>
         <script src="shared.js"></script>
-        <script src="libraries/p5.min.js"></script>
-        <script>
-            // Socket.IO is served by the performer server; the monitor page
-            // loads it cross-port. No CDN: performances run offline.
-            // Ports come from manifest.json via __config.js → shared.js.
-            document.write(
-                '\x3Cscript src="http://' +
-                    location.hostname +
-                    ':' +
-                    window.PNDS.performerPort +
-                    '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
-            );
-        </script>
+        <script src="__pnds/shared/p5.js"></script>
+        <script src="__pnds/shared/socket.io.js"></script>
     </head>
 
     <body>
@@ -80,13 +83,6 @@
             </div>
         </aside>
 
-        <div id="qr-overlay">
-            <div id="qr-wrapper">
-                <img id="qr-image" src="/qr" alt="Scan to join" />
-            </div>
-            <p id="qr-label">Scan to join</p>
-        </div>
-
         <div id="badge-user" class="badge">
             <span id="badge-user-icon">&#x1F3B9;</span>
             <span id="badge-user-text">&mdash;</span>
@@ -101,10 +97,6 @@
             <span id="status-dot"></span>
             <span id="status-text">Connected</span>
         </div>
-
-        <button id="qr-toggle" title="Toggle QR Code">
-            <span id="qr-toggle-icon">&#x2B06;</span>
-        </button>
 
         <button id="reset-roles" title="Reset All Performer Roles">
             <span id="reset-roles-icon">&#x21BA;</span>
