@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
+const { Readable } = require('node:stream');
 const dgram = require('node:dgram');
 const { io } = require('socket.io-client');
 const { events: E } = require('../public/shared');
+const { createRecordingAdapter } = require('../lib/recording.cjs');
 const { runtimeFixture } = require('./support/runtime.cjs');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(read) {
@@ -41,6 +43,38 @@ async function fixture(t, audioMode = 'none') {
   }
   return { command, connect, audio, root };
 }
+
+test('overdub initialization records existing membership at time zero', async () => {
+  const sourceId = 'live-player';
+  const adapter = createRecordingAdapter({
+    adapterId: 'inarticulate-iii-v1',
+    async restore() {
+      await delay(20);
+      adapter.selection(sourceId, null);
+    },
+  });
+  adapter.register(sourceId, 'Performer 1', 1);
+  const body = {
+    action: 'begin', operationId: 'start-overdub', mode: 'overdub',
+    livePassId: 'new-pass', initialState: {}, replayPerformers: [],
+  };
+  const request = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), {
+    url: '/__pnds/recording',
+    method: 'POST',
+    headers: { host: '127.0.0.1', 'content-type': 'application/json' },
+    socket: { remoteAddress: '127.0.0.1' },
+  });
+  let response;
+  await adapter.handle(request, {
+    setHeader() {},
+    writeHead(status) { assert.fail(`Unexpected recording status ${status}`); },
+    end(data) { response = JSON.parse(data); },
+  });
+  assert.deepEqual(response.events.map(({ kind, atMs }) => [kind, atMs]), [
+    ['selection', 0],
+    ['join', 0],
+  ]);
+});
 
 test('III can discover recording on the managed performer listener while browsers remain excluded', async t => {
   const f = await fixture(t);
