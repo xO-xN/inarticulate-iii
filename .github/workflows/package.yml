@@ -55,7 +55,7 @@ jobs:
           # (FUNDING.yml etc.) and the spec excludes those at any depth,
           # exactly like the App's own packer.
           rsync -a ./ "$BUNDLE/" \
-            --exclude='.git*' --exclude='.DS_Store' \
+            --exclude='.git*' --exclude='.DS_Store' --exclude='.pnds-creation' \
             --exclude='/docs/' --exclude='/test/' --exclude='/dist/' \
             --exclude='/node_modules/' --exclude='.lh/'
           node -e '
@@ -95,11 +95,14 @@ jobs:
             if (manifest.schemaVersion !== 2 || manifest.version !== require("./package.json").version) {
               throw new Error("shared bundle metadata must use schema 2 and the same project version");
             }
+            if (process.env.VERSION !== "v" + manifest.version) {
+              throw new Error("release tag must match the project version");
+            }
             for (const [id, version] of Object.entries(deps)) {
               if (references.get(id) !== version) throw new Error(`missing exact shared reference: ${id}@${version}`);
             }
             if (fs.existsSync(`${process.env.BUNDLE}/node_modules`)) throw new Error("local npm dependencies leaked into shared bundle");
-            for (const file of ["server.js", "lib/shared-libraries.js", "public/sketch.js", "public/assets/p1curve.png", "public/assets/p2curve.png", "public/assets/p3curve.png", ...manifest.audio.synthdefs]) {
+            for (const file of ["server.js", "lib/shared-libraries.js", "lib/recording.cjs", "pnds.recording.json", "public/sketch.js", "public/assets/p1curve.png", "public/assets/p2curve.png", "public/assets/p3curve.png", ...manifest.audio.synthdefs]) {
               if (!fs.existsSync(`${process.env.BUNDLE}/${file}`)) throw new Error(`missing project asset: ${file}`);
             }
             console.log(`all ${references.size} exact App shared references present; no local dependencies`);
@@ -130,7 +133,13 @@ jobs:
           grep -q '"status":"ready"' /tmp/health.json
           curl -sf http://127.0.0.1:6868/__pnds/shared/p5.js -o /tmp/p5.js
           curl -sf http://127.0.0.1:6869/__pnds/shared/socket.io.js -o /tmp/socket.io.js
-          curl -sf http://127.0.0.1:6869/qr -o /tmp/iii-qr.png
+          curl -sf http://127.0.0.1:6869/__config.js -o /tmp/iii-monitor-config.js
+          grep -q '"role":"monitor"' /tmp/iii-monitor-config.js
+          curl -sf http://127.0.0.1:6868/__pnds/recording -o /tmp/iii-recording.json
+          node -e '
+            const assert = require("node:assert/strict");
+            assert.deepEqual(require("/tmp/iii-recording.json"), require("./pnds.recording.json"));
+          '
           kill "$SERVER_PID"
           wait "$SERVER_PID"
 
@@ -150,7 +159,7 @@ jobs:
               throw new Error("archive top level must be exactly the project root + pnds-bundle.json, got: " + [...top]);
             }
             const forbidden = entries.filter((e) =>
-              e.includes(".DS_Store") || e.includes("/.git") || e === ".git" ||
+              e.includes(".DS_Store") || e.includes("/.git") || e === ".git" || e.split("/").includes(".pnds-creation") ||
               e.startsWith("Inarticulate III/docs/") || e.startsWith("Inarticulate III/test/") || e.startsWith("Inarticulate III/node_modules/")
             );
             if (forbidden.length) {
@@ -169,36 +178,6 @@ jobs:
           body: |
             A networked digital score for three performers, running on PNDS App.
 
-            > [!IMPORTANT]
-            > Download **`Inarticulate-III-${{ env.VERSION }}.pnds`** from the Assets below.
-            >
-            > Do **not** download "Source code (zip)" / "Source code (tar.gz)" or use the
-            > green "Code → Download ZIP" button — those contain the source only, without
-            > the installable project container.
-            >
-            > The `.pnds` file is a complete, installable project bundle.
-
-            ### How to play
-
-            1. Install **PNDS App 1.6.2 or newer** (macOS, Apple Silicon / Intel):
-               https://github.com/xO-xN/PNDS-App/releases/latest
-            2. Open `Inarticulate-III-${{ env.VERSION }}.pnds` with PNDS App
-               (double-click, ⌘O, or drag it onto the window). The App installs
-               the project and lists it.
-            3. Put the Mac and three performer devices on the same local network.
-            4. Open the project, choose **Internal Synth** and an output device.
-            5. Performers scan the QR code on the monitor page and choose Player 1, 2, or 3.
-
-            You do not need to install Node.js or SuperCollider — PNDS App bundles both.
-
-            See the [README](https://github.com/xO-xN/inarticulate-iii#readme) for details.
-
-            ### Changes in ${{ env.VERSION }}
-
-            - Fixed App shared package references: p5 2.3.4, Express 5.3.0,
-              qrcode 1.5.4, Socket.IO 4.8.4 and osc-min 2.1.2. The project
-              retains its own score assets, synthdefs and source modules.
-            - p5 2 image loading; same-origin performer Socket.IO for the
-              Host HTTPS entry. Projection and performer musical controls
-              retain the work’s existing rules.
-            - Complete Host performer URL shared by QR, config and logs.
+            Download `Inarticulate-III-${{ env.VERSION }}.pnds` from Assets and open it
+            with a compatible version of PNDS App. See the
+            [README](https://github.com/xO-xN/inarticulate-iii#readme) for compatibility and setup.

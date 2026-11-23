@@ -3,12 +3,62 @@ const test = require("node:test");
 const path = require("node:path");
 const net = require("node:net");
 const fs = require("node:fs");
+const vm = require("node:vm");
 
 const { io } = require("socket.io-client");
 
 const { events: EVENTS, surfaces: SURFACES } = require("../public/shared");
 
 const { PROJECT_ROOT, runtimeFixture } = require("./support/runtime.cjs");
+
+async function fetchPageScripts(origin) {
+  return Promise.all(
+    ["__config.js", "shared.js", "sketch.js"].map(async (file) => {
+      const response = await fetch(`${origin}/${file}`);
+      assert.equal(response.status, 200, `${origin}/${file}`);
+      return response.text();
+    }),
+  );
+}
+
+async function renderPage(scripts, url) {
+  let mode = null;
+  let surface = null;
+  const context = vm.createContext({
+    URLSearchParams,
+    location: new URL(url),
+    crypto: globalThis.crypto,
+    localStorage: { getItem: () => null, setItem() {} },
+    addEventListener() {},
+    scrollTo() {},
+    createCanvas: () => ({ elt: { addEventListener() {} } }),
+    loadImage: async () => ({}),
+    frameRate() {},
+    windowWidth: 800,
+    windowHeight: 600,
+    document: {
+      body: {
+        classList: {
+          add(className) {
+            mode = className;
+          },
+        },
+      },
+      addEventListener() {},
+      getElementById: () => ({ addEventListener() {} }),
+    },
+    io: {
+      connect(_origin, options) {
+        surface = options.auth?.surface ?? null;
+        return { on() {} };
+      },
+    },
+  });
+  context.window = context;
+  for (const script of scripts) vm.runInContext(script, context);
+  await vm.runInContext("setup()", context);
+  return { role: context.__PNDS_CONFIG__.role, mode, surface };
+}
 
 test("score server: health, selectId, point, lineStroke, resetRoles, pages", async (t) => {
   const fixture = await runtimeFixture(t);
@@ -27,6 +77,27 @@ test("score server: health, selectId, point, lineStroke, resetRoles, pages", asy
   );
   assert.equal(health.scoreServer.performerPort, fixture.performerPort);
   assert.equal(health.scoreServer.monitorPort, fixture.monitorPort);
+
+  await t.test("proxied pages keep the role of their serving listener", async () => {
+    const [monitorScripts, performerScripts] = await Promise.all([
+      fetchPageScripts(MONITOR_URL),
+      fetchPageScripts(PERFORMER_URL),
+    ]);
+    // The App forwards these scripts from the score server while WebView
+    // exposes a private address with a separate port for each page.
+    assert.deepEqual(
+      await renderPage(monitorScripts, "http://pnds-monitor.localhost:54129/"),
+      { role: "monitor", mode: "monitor-mode", surface: null },
+    );
+    assert.deepEqual(
+      await renderPage(monitorScripts, "http://pnds-projection.localhost:54130/?surface=venue"),
+      { role: "monitor", mode: "venue-mode", surface: "venue" },
+    );
+    assert.deepEqual(
+      await renderPage(performerScripts, "http://pnds-performer.localhost:54131/?surface=venue"),
+      { role: "performer", mode: null, surface: null },
+    );
+  });
 
   // Player 1 joins
   const p1Socket = io(PERFORMER_URL, { reconnection: false });

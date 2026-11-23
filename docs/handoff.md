@@ -145,7 +145,7 @@ PNDS project 的配置源，已对齐 PNDS V1 schema：
 
 - `audio.scsynth` 的 `blockSize` / `audioBusChannels` 在 Internal 模式下是**必填项**，App 用它们启动 `scsynth`；`sampleRate` 已从 schema 移除（App 全局偏好是采样率的唯一来源，默认 48000；旧工程里的残留字段会被容忍但不再生效）；
 - `standaloneTarget` **仅供手动调试**。PNDS App 不得读取它，必须注入自己分配的动态端口；
-- 早期版本的 `roles` 字段已删除。角色边界就是端口本身：`performerPort` 是演奏者页，`monitorPort` 是 App 显示的 conductor / monitor 页，两者都用 `/`。
+- `performerPort` 服务演奏者页，`monitorPort` 服务 App 显示的 conductor / monitor 页。两端都从 `/` 返回同一套页面，各自在 `__config.js` 中声明页面角色。
 
 ### `server.js`
 
@@ -348,11 +348,10 @@ node server.js --audio-mode external
 
 ## 7. 已知限制
 
-1. **前端端口已通过 `__config.js` 动态注入**
-   - `server.js` 在 `__config.js` 中注入 `manifest.json` 的端口；
-   - `public/shared.js` 在浏览器端读取 `window.__PNDS_CONFIG__`，在 Node 端从 `manifest.json` 读取；
-   - `public/sketch.js` 通过 `window.PNDS.monitorPort` 判断 monitor；
-   - 端口只在 `manifest.json` 一处定义。
+1. **前端通过 `__config.js` 读取服务角色和端口**
+   - `server.js` 注入当前服务的 `role` 和 `manifest.json` 中的两个端口。
+   - `public/shared.js` 在浏览器端从 `window.__PNDS_CONFIG__` 读取端口，在 Node 端从 `manifest.json` 读取。
+   - `public/sketch.js` 使用服务声明的 `role` 判断页面身份。原生 WebView 的 `location.port` 是 App 分配的代理端口。
 
 ## 8. 下一阶段：PNDS Tauri App
 

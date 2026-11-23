@@ -19,12 +19,12 @@ Performers play by tracing “trajectories” on their phone screens; when two p
 
 This work is a PNDS project. PNDS (Platform for Networked Digital Score) is an open platform for networked digital music performance, used to create, run, and organize multi-performer digital score works: a creator organizes a digital score, a sound engine, and a set of network interaction rules into a self-contained performance project, and [PNDS App](https://github.com/xO-xN/PNDS-App) (a macOS desktop application) turns it, at the performance venue, into a running local multi-performer digital music performance system.
 
-## Running version 1.4.0
+## Running version 2.0.0
 
-This version requires **PNDS App 1.6.2 or later** (manifest schema 2). Import its project folder or `.pnds` bundle into that App. App supplies the exact shared libraries; the bundle contains the three score images, compiled SynthDef, SuperCollider sources and project code. App does not run npm when opening a project.
+Use [PNDS App 1.7.0-beta.4](https://github.com/xO-xN/PNDS-App/releases/tag/v1.7.0-beta.4) or a later build with the same shared-library versions and support for the browser entry and recording protocols. Open the `.pnds` bundle with the App. App supplies the exact shared libraries; the bundle contains the three score images, compiled SynthDef, SuperCollider sources and project code. App does not run npm when opening a project.
 
 For standalone development, use Node 24, run `npm ci`, then `npm run dev:none`. Internal and External audio modes keep the existing work-specific protocol and sound engine. See [shared-library runtime and verification](docs/shared-libraries.md) and [project handoff](docs/handoff.md).
 
-## App performer QR migration
+## Joining a performance
 
-This version removes the project QR interface and `/qr` endpoint. In PNDS App with built-in performer QR, use the bottom bar in performance mode or the Performers button in creation mode to open this project’s performer page. Standalone browsers and older Apps retain the project pages without an in-page QR entry.
+Open the project in PNDS App and use the network QR code in the performance bottom bar. Performers join from the same local network, confirm the performance and select an available player number. In Creation, use the Performers button to open the project’s test entry. See [browser participation](docs/browser-participation.md) and [recording and overdubbing](docs/developer/performance-recording.md).

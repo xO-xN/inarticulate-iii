@@ -102,14 +102,15 @@ function selectPlayer(playerId) {
 }
 
 // Use native Safari action sheet (prompt/alert)
-function promptForUserType() {
+function promptForUserType(allowCancel = false) {
   // Using setTimeout to ensure this runs after the page has loaded
   setTimeout(() => {
     const selection = prompt("Select your 🎹:", "1, 2 or 3");
 
     if (selection === null) {
+      if (allowCancel) return;
       // User canceled - ask again
-      promptForUserType();
+      promptForUserType(allowCancel);
       return;
     }
 
@@ -120,7 +121,7 @@ function promptForUserType() {
     } else {
       // Invalid selection, prompt again
       alert("Please enter a valid option: 1, 2 or 3");
-      promptForUserType();
+      promptForUserType(allowCancel);
     }
   }, 300);
 }
@@ -294,6 +295,12 @@ async function setup() {
   			promptForUserType();
   		}
   	});
+
+  if (!IS_OPERATOR) {
+    document.getElementById("badge-user").addEventListener("click", () => {
+      if (socket.connected) promptForUserType(true);
+    });
+  }
 
   if (IS_OPERATOR && !IS_VENUE) {
     document.getElementById("reset-roles").addEventListener("click", () => {

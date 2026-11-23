@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "inarticulate-iii",
   "name": "Inarticulate III",
-  "version": "1.4.1",
+  "version": "2.0.0",
   "description": "A networked digital score for three performers.",
   "scoreServer": {
     "entry": "server.js",

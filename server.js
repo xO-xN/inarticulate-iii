@@ -34,7 +34,9 @@ const {
   attachShutdown,
   closeHttpServer,
 } = require("./lib/lifecycle");
-const { ProjectAudio } = require("./audio/controller");
+const { ProjectAudio, parsePair } = require("./audio/controller");
+const { createRecordingAdapter } = require("./lib/recording.cjs");
+const { isClaimToken } = require("./lib/players");
 const shared = require("./public/shared");
 
 const PROJECT_ROOT = __dirname;
@@ -233,6 +235,9 @@ function transferPlayerAssignment(previousSocketId) {
     previousSocket._releaseRetry = null;
   }
 
+  releaseSlot(previousSocket);
+  recording.unregister(previousSocket.recordingSourceId);
+  previousSocket.recordingSourceId = null;
   previousSocket.userType = null;
 }
 
@@ -278,113 +283,127 @@ function broadcastOscActivity(address, values) {
 // Socket.IO
 // ------------------------------------------------------------
 
-io.on("connection", (socket) => {
-  socket.clientId = nextTempId++;
+const recordedPoints = new Map();
+const pairStrokes = new Map();
+const replaySockets = new Map();
+const claimSources = new Map();
+// Audio slots belong to effective musical sources, independently of UI claims.
+const slotOwners = new Map();
+function ownsSlot(socket) { return slotOwners.get(String(socket.userType)) === socket; }
+function releaseSlot(socket) {
+  if (!ownsSlot(socket)) return;
+  applyPoint(socket, [], socket.recordingSourceId);
+  slotOwners.delete(String(socket.userType));
+}
+function selectReplaySlot(socket, selection) {
+  if (!isPlayerId(selection)) throw new Error('Invalid III recorded selection');
+  const owner = slotOwners.get(String(selection));
+  if (owner && owner !== socket) throw new Error('Conflicting III recorded membership');
+  if (String(socket.userType) !== String(selection)) releaseSlot(socket);
+  socket.userType = String(selection);
+  slotOwners.set(socket.userType, socket);
+}
 
-  // Connection category, not an event: the venue projection client
-  // (?surface=venue on the monitor page) declares itself in the handshake
-  // because it never sends anything. The mark keeps it out of presence and
-  // closes every claim path for it below.
-  socket.isVenue = socket.handshake.auth?.surface === SURFACES.venue;
+function applyStroke(data) {
+  const parsed = parsePair(data.id);
+  const stroke = Math.max(0, Math.min(1, Number(data.stroke)));
+  pairStrokes.set(parsed.key, { id: data.id, stroke });
+  broadcastOscActivity(`/${data.id}`, [stroke]);
+  return projectAudio.setPairStroke(data.id, stroke).catch(error => console.error('[audio] recorded line:', error));
+}
 
-  socket.emit(EVENTS.clientId, socket.clientId);
-  broadcastClientCount();
-
-  // A projection joining (or reconnecting) mid-state must not miss the
-  // panels decision made before it arrived.
-  if (socket.isVenue) {
-    sendVenuePanelsTo(socket);
+async function releaseRecordingSources() {
+  for (const socket of [...io.sockets.sockets.values(), ...replaySockets.values()]) {
+    if (socket._releaseRetry) clearTimeout(socket._releaseRetry);
+    socket._releaseRetry = null;
+    socket.lastPVal = undefined;
+    socket.pSendCount = 0;
+    socket.lastXY = undefined;
   }
+  for (const point of recordedPoints.values()) {
+    await projectAudio.releasePlayer(point.selection);
+    io.emit(EVENTS.pointSend, { clear: true, clientId: point.selection });
+  }
+  recordedPoints.clear();
+  slotOwners.clear();
+  replaySockets.clear();
+  pairStrokes.clear();
+  for (const pair of ['p1-p2', 'p1-p3', 'p2-p3']) await applyStroke({ id: pair, stroke: 0 });
+}
 
-  // ---- Player ID selection ----
-
-  socket.on(EVENTS.selectId, (data) => {
-    if (socket.isVenue) {
-      // A read-only spectator cannot become an operator or a player.
-      return;
-    }
-
-    const userType =
-      data && data.userType !== undefined ? String(data.userType) : null;
-    const claimToken = data?.claimToken;
-
-    if (userType !== "0" && !isPlayerId(userType)) {
-      socket.emit(EVENTS.idConfirmation, {
-        status: "rejected",
-        userType,
-        message: "Invalid player ID.",
-      });
-      return;
-    }
-
-    let selectStatus = "accepted";
-
-    if (userType !== "0") {
-      const decision = decidePlayerClaim(playerAssignments, {
-        playerId: userType,
-        socketId: socket.id,
-        claimToken,
-      });
-
-      if (decision.status === "rejected") {
-        console.log(
-          `[protocol] select ${userType} rejected: ${decision.message}`,
-        );
-        socket.emit(EVENTS.idConfirmation, {
-          status: "rejected",
-          userType,
-          message: decision.message,
-        });
-        return;
+const recording = createRecordingAdapter({
+  adapterId: 'inarticulate-iii-v1',
+  snapshot() { return { points: [...recordedPoints.values()], strokes: [...pairStrokes.values()],
+    selections: [...io.sockets.sockets.values()].filter(socket => isPlayerId(socket.userType)).map(socket => ({
+      performerId: socket.recordingSourceId, selection: Number(socket.userType),
+    })) }; },
+  async restore(initialState, performers) {
+    if (!Array.isArray(initialState?.points) || !Array.isArray(initialState.strokes)) throw new Error('Invalid III recording state');
+    await releaseRecordingSources();
+    const selections = new Set();
+    for (const performer of performers) {
+      if (performer.selection !== null && !isPlayerId(performer.selection)) throw new Error('Invalid III replay selection');
+      const initialSelection = initialState.selections?.find(source => source.performerId === performer.id)?.selection;
+      if (initialSelection !== undefined) {
+        if (!isPlayerId(initialSelection) || selections.has(String(initialSelection))) throw new Error('Invalid III initial membership');
+        selections.add(String(initialSelection));
       }
-
-      if (decision.status === "takeover") {
-        transferPlayerAssignment(decision.previousSocketId);
+      replaySockets.set(performer.id, { id: 'replay:' + performer.id, userType: initialSelection === undefined ? null : String(initialSelection),
+        recordingSourceId: performer.id, broadcast: { emit: (...args) => io.emit(...args) } });
+      if (initialSelection !== undefined) slotOwners.set(String(initialSelection), replaySockets.get(performer.id));
+    }
+    // A reused live device may still display a role now owned by replay. It
+    // joins this pass without a role until the creator chooses a free one.
+    if (recording.passId) {
+      for (const socket of io.sockets.sockets.values()) {
+        if (isPlayerId(socket.userType) && slotOwners.has(String(socket.userType))) {
+          recording.selection(socket.recordingSourceId, null);
+        }
       }
-
-      selectStatus = decision.status;
     }
-
-    removePlayerAssignment(socket);
-    socket.userType = userType;
-
-    console.log(
-      userType === "0"
-        ? "[protocol] select: operator"
-        : `[protocol] select: player ${userType} (${selectStatus})`,
-    );
-
-    if (userType !== "0") {
-      playerAssignments.set(userType, {
-        socketId: socket.id,
-        claimToken,
-      });
-      socket.clientId = parseInt(userType, 10);
+    for (const point of initialState.points) {
+      const socket = replaySockets.get(point.performerId);
+      if (socket) applyPoint(socket, point.data, point.performerId);
     }
-
-    socket.emit(EVENTS.idConfirmation, {
-      status: "accepted",
-      userType,
-    });
-
-    if (userType !== "0") {
-      socket.emit(EVENTS.clientId, socket.clientId);
-      broadcastClientCount();
-    } else {
-      // Sync the operator's toggle button with the current state.
-      sendVenuePanelsTo(socket);
+    for (const stroke of initialState.strokes) {
+      const pair = parsePair(stroke.id);
+      if (selections.has(String(pair.first)) && selections.has(String(pair.second))) await applyStroke(stroke);
     }
-  });
+  },
+  async apply(event) {
+    const socket = replaySockets.get(event.performerId);
+    if (!socket) throw new Error('Unknown III recorded performer');
+    if (event.kind === 'selection' || event.kind === 'join') {
+      const selection = event.kind === 'join' ? event.payload.selection : event.payload;
+      if (selection === null) { releaseSlot(socket); socket.userType = null; }
+      else selectReplaySlot(socket, selection);
+    } else if (event.kind === 'point') applyPoint(socket, event.payload, event.performerId);
+    else if (event.kind === 'stroke') await applyStroke(event.payload);
+    else if (event.kind === 'leave' || event.kind === 'release') {
+      if (event.kind === 'leave') { releaseSlot(socket); socket.userType = null; }
+      else applyPoint(socket, [], event.performerId);
+    }
+  },
+  release: releaseRecordingSources,
+});
 
-  // ---- Point event ----
+app.use((request, response, next) => {
+  void recording.handle(request, response).then(handled => { if (!handled) next(); }).catch(next);
+});
 
-  socket.on(EVENTS.point, (data) => {
+function applyPoint(socket, data, sourceId) {
     if (!isPlayerId(socket.userType)) {
       return;
     }
 
+    const owner = slotOwners.get(String(socket.userType));
+    if (owner && owner !== socket) return;
+    if (!owner) slotOwners.set(String(socket.userType), socket);
     const playerId = Number(socket.userType);
     const isActive = !(Array.isArray(data) && data.length === 0);
+
+    if (isActive) recordedPoints.set(socket.id, { performerId: sourceId, selection: playerId, data: structuredClone(data) });
+    else recordedPoints.delete(socket.id);
 
     // Broadcast point data to other browsers
     if (!isActive) {
@@ -435,6 +454,7 @@ io.on("connection", (socket) => {
       socket.pSendCount = 0;
 
       const sendRelease = () => {
+        if (slotOwners.get(String(playerId)) !== socket) { socket._releaseRetry = null; return; }
         broadcastOscActivity(`/p${playerId}`, [0]);
 
         projectAudio.releasePlayer(playerId).catch((error) => {
@@ -489,38 +509,149 @@ io.on("connection", (socket) => {
     } else if (!isActive) {
       socket.lastXY = { relX: null, relY: null, amp: null };
     }
+
+}
+
+io.on("connection", (socket) => {
+  socket.clientId = nextTempId++;
+
+  // Connection category, not an event: the venue projection client
+  // (?surface=venue on the monitor page) declares itself in the handshake
+  // because it never sends anything. The mark keeps it out of presence and
+  // closes every claim path for it below.
+  socket.isVenue = socket.handshake.auth?.surface === SURFACES.venue;
+
+  socket.emit(EVENTS.clientId, socket.clientId);
+  broadcastClientCount();
+
+  // A projection joining (or reconnecting) mid-state must not miss the
+  // panels decision made before it arrived.
+  if (socket.isVenue) {
+    sendVenuePanelsTo(socket);
+  }
+
+  // ---- Player ID selection ----
+
+  socket.on(EVENTS.selectId, (data) => {
+    if (socket.isVenue) {
+      // A read-only spectator cannot become an operator or a player.
+      return;
+    }
+
+    const userType =
+      data && data.userType !== undefined ? String(data.userType) : null;
+    const claimToken = data?.claimToken;
+
+    if (userType !== "0" && !isPlayerId(userType)) {
+      socket.emit(EVENTS.idConfirmation, {
+        status: "rejected",
+        userType,
+        message: "Invalid player ID.",
+      });
+      return;
+    }
+
+    if (recording.mode === 'overdub' && [...replaySockets.values()].some(source => source.userType === userType)) {
+      socket.emit(EVENTS.idConfirmation, { status: 'rejected', userType, message: 'ID already taken by a recorded performer.' });
+      return;
+    }
+
+    let selectStatus = "accepted";
+
+    if (userType !== "0") {
+      const decision = decidePlayerClaim(playerAssignments, {
+        playerId: userType,
+        socketId: socket.id,
+        claimToken,
+      });
+
+      if (decision.status === "rejected") {
+        console.log(
+          `[protocol] select ${userType} rejected: ${decision.message}`,
+        );
+        socket.emit(EVENTS.idConfirmation, {
+          status: "rejected",
+          userType,
+          message: decision.message,
+        });
+        return;
+      }
+
+      if (decision.status === "takeover") {
+        transferPlayerAssignment(decision.previousSocketId);
+      }
+
+      selectStatus = decision.status;
+    }
+
+    if (userType !== socket.userType) {
+      releaseSlot(socket);
+      if (userType === '0' && isPlayerId(socket.userType)) {
+        recording.unregister(socket.recordingSourceId);
+        socket.recordingSourceId = null;
+      }
+    }
+    removePlayerAssignment(socket);
+    socket.userType = userType;
+
+    console.log(
+      userType === "0"
+        ? "[protocol] select: operator"
+        : `[protocol] select: player ${userType} (${selectStatus})`,
+    );
+
+    if (userType !== "0") {
+      playerAssignments.set(userType, {
+        socketId: socket.id,
+        claimToken,
+      });
+      socket.clientId = parseInt(userType, 10);
+    }
+
+    if (userType !== '0') {
+      const sourceId = socket.recordingSourceId || (isClaimToken(claimToken) ? claimSources.get(claimToken) : null) || recording.newSourceId();
+      if (isClaimToken(claimToken)) claimSources.set(claimToken, sourceId);
+      socket.recordingSourceId = sourceId;
+      recording.register(sourceId, `Performer ${userType}`, Number(userType));
+      if (recording.admitted(sourceId) && !slotOwners.has(userType)) slotOwners.set(userType, socket);
+    }
+
+    socket.emit(EVENTS.idConfirmation, {
+      status: "accepted",
+      userType,
+    });
+
+    if (userType !== "0") {
+      socket.emit(EVENTS.clientId, socket.clientId);
+      broadcastClientCount();
+    } else {
+      // Sync the operator's toggle button with the current state.
+      sendVenuePanelsTo(socket);
+    }
+  });
+
+  // ---- Point event ----
+
+  socket.on(EVENTS.point, (data) => {
+    if (!isPlayerId(socket.userType) || !recording.admitted(socket.recordingSourceId) || (slotOwners.has(socket.userType) && !ownsSlot(socket))) return;
+    if (!(Array.isArray(data) && data.length === 0) &&
+        (!data?.main || ![data.main.x, data.main.y, data.relX ?? 0.5, data.relY ?? 0.5].every(Number.isFinite))) return;
+    if (recording.capture(socket.recordingSourceId, 'point', data)) applyPoint(socket, data, socket.recordingSourceId);
   });
 
   // ---- Line stroke ----
 
   socket.on(EVENTS.lineStroke, (data) => {
-    if (!isPlayerId(socket.userType)) {
-      return;
-    }
-
-    if (!data || typeof data.id !== "string") {
-      console.warn("[audio] ignoring invalid lineStroke:", data);
-      return;
-    }
-
-    const stroke = Number(data.stroke);
-
-    if (!Number.isFinite(stroke)) {
-      console.warn("[audio] ignoring invalid line stroke value:", data);
-      return;
-    }
-
-    broadcastOscActivity(`/${data.id}`, [stroke]);
-
-    projectAudio.setPairStroke(data.id, stroke).catch((error) => {
-      console.error(`[audio] line ${data.id} failed:`, error);
-    });
+    if (!isPlayerId(socket.userType) || !recording.admitted(socket.recordingSourceId) || (slotOwners.has(socket.userType) && !ownsSlot(socket))) return;
+    if (!data || typeof data.id !== 'string' || !Number.isFinite(Number(data.stroke))) return;
+    try { parsePair(data.id); } catch { return; }
+    if (recording.capture(socket.recordingSourceId, 'stroke', data)) applyStroke(data);
   });
 
   // ---- Reset all performer roles (operator command) ----
 
   socket.on(EVENTS.resetRoles, () => {
-    if (socket.userType !== "0") {
+    if (!recording.conductorAllowed || socket.userType !== "0") {
       return;
     }
 
@@ -542,15 +673,10 @@ io.on("connection", (socket) => {
         sock._releaseRetry = null;
       }
 
-      projectAudio
-        .releasePlayer(Number(sock.userType))
-        .catch((error) => {
-          console.error(
-            `[audio] player ${sock.userType} reset failed:`,
-            error,
-          );
-        });
+      releaseSlot(sock);
 
+      recording.unregister(sock.recordingSourceId);
+      recordedPoints.delete(sock.id);
       sock.userType = null;
       sock.clientId = nextTempId++;
       sock.emit(EVENTS.clientId, sock.clientId);
@@ -581,28 +707,10 @@ io.on("connection", (socket) => {
   // ---- Disconnect ----
 
   socket.on("disconnect", () => {
-    const isPlayer = isPlayerId(socket.userType);
-
-    if (isPlayer) {
-      const playerId = Number(socket.userType);
-
-      console.log(`[protocol] disconnect: player ${playerId}`);
-      broadcastOscActivity(`/p${playerId}`, [0]);
-
-      projectAudio.releasePlayer(playerId).catch((error) => {
-        console.error(
-          `[audio] player ${playerId} disconnect failed:`,
-          error,
-        );
-      });
-
-      socket.broadcast.emit(EVENTS.pointSend, {
-        clear: true,
-        clientId: playerId,
-      });
-
-      removePlayerAssignment(socket);
-    }
+    releaseSlot(socket);
+    if (socket.recordingSourceId) recording.unregister(socket.recordingSourceId);
+    recordedPoints.delete(socket.id);
+    removePlayerAssignment(socket);
 
     if (socket._releaseRetry) {
       clearTimeout(socket._releaseRetry);

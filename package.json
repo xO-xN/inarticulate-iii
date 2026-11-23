@@ -1,6 +1,6 @@
 {
   "name": "inarticulate-iii",
-  "version": "1.4.1",
+  "version": "2.0.0",
   "private": true,
   "description": "A networked digital score for three performers.",
   "main": "server.js",
@@ -11,7 +11,7 @@
     "start": "node server.js",
     "dev": "node server.js --audio-mode internal",
     "dev:none": "node server.js --audio-mode none",
-    "check": "node --check server.js && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/osc-transport.js && node --check lib/audio-engine.js && node --check lib/players.js && node --check lib/lifecycle.js && node --check audio/controller.js && node --check public/shared.js && node --check public/sketch.js && node --check lib/shared-libraries.js && node --check scripts/shared-env.cjs && node --check scripts/verify-shared-browser.mjs",
+    "check": "node --check server.js && node --check lib/recording.cjs && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/osc-transport.js && node --check lib/audio-engine.js && node --check lib/players.js && node --check lib/lifecycle.js && node --check audio/controller.js && node --check public/shared.js && node --check public/sketch.js && node --check lib/shared-libraries.js && node --check scripts/shared-env.cjs && node --check scripts/verify-shared-browser.mjs",
     "test": "node --test"
   },
   "dependencies": {

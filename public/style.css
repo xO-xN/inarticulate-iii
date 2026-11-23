@@ -274,6 +274,8 @@ body.monitor-mode #venue-panels {
 #badge-user {
     bottom: 95px;
     left: 20px;
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 #badge-clients {
